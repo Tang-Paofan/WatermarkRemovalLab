@@ -40,17 +40,6 @@ Detect / Prompt
 
 Localization and inpainting remain separate so that detectors, segmenters, mask refiners, inpainters, and quality evaluators can evolve independently.
 
-## Roadmap
-
-1. OpenCV image baseline with manual regions and Telea/Navier-Stokes inpainting.
-2. Local-crop LaMa image inpainting with mask-only compositing.
-3. Interactive SAM/SAM 2 image segmentation with cached embeddings.
-4. General image-watermark localization from templates, visual cues, and detectors.
-5. Multi-model pipelines and reproducible quality/performance evaluation.
-6. FastAPI and web deployment with CPU/CUDA and ONNX Runtime options.
-7. Fixed-region video baseline with FFmpeg and audio passthrough.
-8. SAM 2 propagation and temporally consistent video inpainting.
-
 ## Design principles
 
 - Prefer user clicks, boxes, or masks for the first general-purpose MVP.
@@ -65,10 +54,6 @@ Localization and inpainting remain separate so that detectors, segmenters, mask 
 Use this project only with content you own or have permission to modify. Examples and test assets should be self-created, synthetic, or explicitly licensed. The project does not provide platform-specific detectors for removing stock-media preview watermarks or tools marketed for removing legally required AI labels, provenance metadata, or source attribution.
 
 This statement describes the project's intended use and is not legal advice.
-
-## Development status
-
-The repository is being initialized. The first implementation milestone will provide an OpenCV image CLI, binary-mask utilities, and minimal automated tests.
 
 ## Contributing
 
