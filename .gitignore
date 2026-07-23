@@ -1,0 +1,76 @@
+# Python bytecode and caches
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# Python environments and packaging
+.venv/
+venv/
+env/
+ENV/
+build/
+dist/
+*.egg-info/
+.python-version
+
+# Notebooks
+.ipynb_checkpoints/
+
+# JavaScript and frontend
+node_modules/
+.npm/
+.pnpm-store/
+.yarn/
+frontend/dist/
+frontend/.next/
+
+# IDEs and editors
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Operating systems
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Environment variables and secrets
+.env
+.env.*
+!.env.example
+
+# Model weights and runtime caches
+models/
+weights/
+checkpoints/
+.cache/
+*.ckpt
+*.onnx
+*.pt
+*.pth
+*.safetensors
+*.engine
+
+# Generated media, datasets, and experiment artifacts
+data/
+datasets/
+inputs/
+outputs/
+results/
+runs/
+artifacts/
+benchmarks/results/
+*.log
+
+# Temporary files
+tmp/
+temp/
+*.tmp
