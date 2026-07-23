@@ -72,4 +72,4 @@ The repository is being initialized. The first implementation milestone will pro
 
 ## License
 
-Source code in this repository is licensed under the [MIT License](LICENSE). Third-party models, weights, datasets, and bundled assets may use different licenses and will be documented separately before distribution.
+Source code in this repository is licensed under the [Apache License 2.0](LICENSE). Third-party models, weights, datasets, and bundled assets may use different licenses and will be documented separately before distribution.
