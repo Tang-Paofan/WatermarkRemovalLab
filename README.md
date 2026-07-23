@@ -1,8 +1,8 @@
 # Watermark Removal Lab
 
-A learning-oriented image and video watermark removal platform built with OpenCV, SAM/SAM 2, LaMa, ONNX Runtime, and FFmpeg.
+[English](README.md) | [简体中文](README.zh-CN.md)
 
-基于 OpenCV、SAM/SAM 2、LaMa、ONNX Runtime 和 FFmpeg 的图片与视频可见水印定位、分割、补全、评测和部署实验平台。
+A learning-oriented image and video watermark removal platform built with OpenCV, SAM/SAM 2, LaMa, ONNX Runtime, and FFmpeg.
 
 > [!IMPORTANT]
 > This project is intended only for images and videos you own, created, or are authorized to edit. It is not designed to bypass copyright protection, provenance systems, platform disclosures, or paid-preview watermarks.
