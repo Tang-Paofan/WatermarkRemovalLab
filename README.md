@@ -70,6 +70,10 @@ This statement describes the project's intended use and is not legal advice.
 
 The repository is being initialized. The first implementation milestone will provide an OpenCV image CLI, binary-mask utilities, and minimal automated tests.
 
+## Contributing
+
+Read [CONTRIBUTING.md](CONTRIBUTING.md), the [coding standards](docs/CODING_STANDARDS.md), and the accepted [CLI-first architecture decision](docs/adr/0001-cli-first-core.md) before implementation. Model and third-party artifacts must be recorded in [MODEL_LICENSES.md](MODEL_LICENSES.md) and [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+
 ## License
 
 Source code in this repository is licensed under the [Apache License 2.0](LICENSE). Third-party models, weights, datasets, and bundled assets may use different licenses and will be documented separately before distribution.

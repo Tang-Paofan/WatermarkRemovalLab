@@ -70,6 +70,10 @@ Watermark Removal Lab 是一个工程实践和学习项目，用于探索：
 
 仓库正在初始化。首个实现里程碑将提供 OpenCV 图片命令行工具、二值掩膜工具和最小自动化测试。
 
+## 参与贡献
+
+开始实现前，请阅读 [CONTRIBUTING.zh-CN.md](CONTRIBUTING.zh-CN.md)、[编码规范](docs/CODING_STANDARDS.zh-CN.md)和已接受的 [CLI 优先架构决策](docs/adr/0001-cli-first-core.zh-CN.md)。模型和第三方产物必须登记在 [MODEL_LICENSES.md](MODEL_LICENSES.md) 与 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) 中。
+
 ## 许可证
 
 本仓库源代码采用 [Apache License 2.0](LICENSE) 许可。第三方模型、权重、数据集和随附资源可能采用不同许可证，并将在分发前单独记录。
