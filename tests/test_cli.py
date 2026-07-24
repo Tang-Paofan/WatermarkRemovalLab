@@ -2,7 +2,9 @@
 
 import argparse
 import json
+import signal
 from pathlib import Path
+from typing import cast
 
 import numpy as np
 import pytest
@@ -10,15 +12,46 @@ from PIL import Image
 
 import watermark_removal_lab.cli as cli_module
 from watermark_removal_lab.application import (
+    BatchContractError,
+    BatchPlan,
+    BatchRunError,
+    BatchSummary,
+    CancellationToken,
     ImageRemovalError,
     ImageRemovalOutputError,
     ImageRemovalProcessingError,
+    run_batch,
 )
 
 
 def _save_rgb(path: Path) -> None:
     pixels = np.full((5, 5, 3), 100, dtype=np.uint8)
     Image.fromarray(pixels, mode="RGB").save(path)
+
+
+def _batch_state_files(output_directory: Path) -> tuple[Path, Path, Path]:
+    state_directories = tuple((output_directory / ".wrl-batch").iterdir())
+    assert len(state_directories) == 1
+    state_directory = state_directories[0]
+    return (
+        state_directory / "run.json",
+        state_directory / "results.jsonl",
+        state_directory / "summary.json",
+    )
+
+
+def _result_records(path: Path) -> list[dict[str, object]]:
+    return [
+        cast(dict[str, object], json.loads(line))
+        for line in path.read_text(encoding="utf-8").splitlines()
+    ]
+
+
+def _write_manifest(path: Path, records: list[dict[str, object]]) -> None:
+    path.write_text(
+        "".join(json.dumps(record, separators=(",", ":")) + "\n" for record in records),
+        encoding="utf-8",
+    )
 
 
 def test_cli_box_workflow_succeeds_with_human_output(
@@ -215,6 +248,27 @@ def test_cli_maps_service_failures_to_exit_codes(
             "--method",
             "unknown",
         ],
+        [
+            "batch",
+            "image",
+            "--input-dir",
+            "input",
+            "--output-dir",
+            "output",
+        ],
+        [
+            "batch",
+            "image",
+            "--input-dir",
+            "input",
+            "--output-dir",
+            "output",
+            "--box",
+            "0,0,1,1",
+            "--mask-dir",
+            "masks",
+        ],
+        ["batch", "run", "manifest.jsonl"],
     ],
 )
 def test_cli_rejects_invalid_argument_combinations(
@@ -256,6 +310,507 @@ def test_cli_remove_help_documents_defaults_and_output_limits(
     assert "JPEG is lossy" in normalized_help
     assert "default: telea" in normalized_help
     assert "default: 127" in normalized_help
+
+
+def test_cli_directory_batch_processes_recursive_inputs_and_custom_results(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    input_directory = tmp_path / "input"
+    output_directory = tmp_path / "output"
+    (input_directory / "nested").mkdir(parents=True)
+    output_directory.mkdir()
+    _save_rgb(input_directory / "root.jpg")
+    _save_rgb(input_directory / "nested" / "child.png")
+
+    exit_code = cli_module.main(
+        [
+            "batch",
+            "image",
+            "--input-dir",
+            str(input_directory),
+            "--output-dir",
+            str(output_directory),
+            "--box",
+            "1,1,2,2",
+            "--recursive",
+            "--method",
+            "ns",
+            "--radius",
+            "1.5",
+            "--dilate",
+            "1",
+            "--output-format",
+            "png",
+            "--results",
+            "reports/items.jsonl",
+        ]
+    )
+
+    captured = capsys.readouterr()
+    run_file, default_results, summary_file = _batch_state_files(output_directory)
+    custom_results = output_directory / "reports/items.jsonl"
+    assert exit_code == 0
+    assert "discovered=2 validated=2 succeeded=2 skipped=0 failed=0 cancelled=0" in captured.out
+    assert f"results: {custom_results}" in captured.out
+    assert f"summary: {summary_file}" in captured.out
+    assert captured.err == ""
+    assert (output_directory / "root.png").is_file()
+    assert (output_directory / "nested/child.png").is_file()
+    assert run_file.is_file()
+    assert not default_results.exists()
+    assert [record["status"] for record in _result_records(custom_results)] == [
+        "succeeded",
+        "succeeded",
+    ]
+
+
+def test_cli_directory_batch_records_missing_mask_and_continues(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    input_directory = tmp_path / "input"
+    mask_directory = tmp_path / "masks"
+    output_directory = tmp_path / "output"
+    input_directory.mkdir()
+    mask_directory.mkdir()
+    output_directory.mkdir()
+    _save_rgb(input_directory / "a.png")
+    _save_rgb(input_directory / "b.png")
+    Image.fromarray(np.zeros((5, 5), dtype=np.uint8), mode="L").save(mask_directory / "a.png")
+
+    exit_code = cli_module.main(
+        [
+            "batch",
+            "image",
+            "--input-dir",
+            str(input_directory),
+            "--output-dir",
+            str(output_directory),
+            "--mask-dir",
+            str(mask_directory),
+        ]
+    )
+
+    captured = capsys.readouterr()
+    _, results_file, _ = _batch_state_files(output_directory)
+    records = _result_records(results_file)
+    assert exit_code == 3
+    assert "succeeded=1" in captured.out
+    assert "failed=1" in captured.out
+    assert captured.err == ""
+    assert [record["status"] for record in records] == ["succeeded", "failed"]
+    assert cast(dict[str, object], records[1]["error"])["code"] == "mask_not_found"
+    assert (output_directory / "a.png").is_file()
+    assert not (output_directory / "b.png").exists()
+
+
+def test_cli_manifest_batch_applies_item_overrides(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    output_directory = tmp_path / "output"
+    output_directory.mkdir()
+    _save_rgb(tmp_path / "input.png")
+    manifest = tmp_path / "batch.jsonl"
+    _write_manifest(
+        manifest,
+        [
+            {
+                "record": "batch",
+                "schema_version": 1,
+                "media": "image",
+                "operation": "remove",
+                "defaults": {"method": "telea", "radius": 3},
+            },
+            {
+                "record": "item",
+                "id": "sample",
+                "input": "input.png",
+                "output": "result.png",
+                "box": [1, 1, 2, 2],
+                "method": "ns",
+                "radius": 1.0,
+            },
+        ],
+    )
+
+    exit_code = cli_module.main(
+        [
+            "batch",
+            "run",
+            str(manifest),
+            "--output-dir",
+            str(output_directory),
+        ]
+    )
+
+    captured = capsys.readouterr()
+    _, results_file, _ = _batch_state_files(output_directory)
+    record = _result_records(results_file)[0]
+    assert exit_code == 0
+    assert "succeeded=1" in captured.out
+    assert captured.err == ""
+    assert record["status"] == "succeeded"
+    assert cast(dict[str, object], record["normalized_request"])["method"] == "ns"
+    assert (output_directory / "result.png").is_file()
+
+
+def test_cli_manifest_fail_fast_cancels_remaining_items(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    output_directory = tmp_path / "output"
+    output_directory.mkdir()
+    _save_rgb(tmp_path / "valid.png")
+    manifest = tmp_path / "batch.jsonl"
+    _write_manifest(
+        manifest,
+        [
+            {
+                "record": "batch",
+                "schema_version": 1,
+                "media": "image",
+                "operation": "remove",
+            },
+            {
+                "record": "item",
+                "id": "missing",
+                "input": "missing.png",
+                "output": "missing-output.png",
+                "box": [1, 1, 1, 1],
+            },
+            {
+                "record": "item",
+                "id": "valid",
+                "input": "valid.png",
+                "output": "valid-output.png",
+                "box": [1, 1, 1, 1],
+            },
+        ],
+    )
+
+    exit_code = cli_module.main(
+        [
+            "batch",
+            "run",
+            str(manifest),
+            "--output-dir",
+            str(output_directory),
+            "--fail-fast",
+        ]
+    )
+
+    captured = capsys.readouterr()
+    _, results_file, _ = _batch_state_files(output_directory)
+    records = _result_records(results_file)
+    assert exit_code == 3
+    assert "failed=1 cancelled=1" in captured.out
+    assert captured.err == ""
+    assert [record["status"] for record in records] == ["failed", "cancelled"]
+    assert cast(dict[str, object], records[1]["error"])["code"] == "fail_fast"
+    assert not (output_directory / "valid-output.png").exists()
+
+
+def test_cli_batch_skip_is_a_successful_terminal_status(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    input_directory = tmp_path / "input"
+    output_directory = tmp_path / "output"
+    input_directory.mkdir()
+    output_directory.mkdir()
+    _save_rgb(input_directory / "input.png")
+    (output_directory / "input.png").write_bytes(b"existing")
+
+    exit_code = cli_module.main(
+        [
+            "batch",
+            "image",
+            "--input-dir",
+            str(input_directory),
+            "--output-dir",
+            str(output_directory),
+            "--box",
+            "1,1,1,1",
+            "--overwrite",
+            "skip",
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert "succeeded=0 skipped=1 failed=0" in captured.out
+    assert captured.err == ""
+    assert (output_directory / "input.png").read_bytes() == b"existing"
+
+
+def test_cli_batch_reports_manifest_line_errors_as_configuration_failures(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    output_directory = tmp_path / "output"
+    output_directory.mkdir()
+    manifest = tmp_path / "invalid.jsonl"
+    manifest.write_text(
+        '{"record":"batch","schema_version":1,"media":"image","operation":"remove"}\n{invalid}\n',
+        encoding="utf-8",
+    )
+
+    exit_code = cli_module.main(
+        [
+            "batch",
+            "run",
+            str(manifest),
+            "--output-dir",
+            str(output_directory),
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert exit_code == 2
+    assert captured.out == ""
+    assert captured.err.startswith("failed: line 2:")
+    assert not (output_directory / ".wrl-batch").exists()
+
+
+def test_cli_batch_reports_preflight_errors_with_exit_code_two(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    input_directory = tmp_path / "input"
+    output_directory = tmp_path / "output"
+    input_directory.mkdir()
+    output_directory.mkdir()
+    _save_rgb(input_directory / "input.png")
+    (output_directory / "input.png").write_bytes(b"existing")
+
+    exit_code = cli_module.main(
+        [
+            "batch",
+            "image",
+            "--input-dir",
+            str(input_directory),
+            "--output-dir",
+            str(output_directory),
+            "--box",
+            "1,1,1,1",
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert exit_code == 2
+    assert captured.out == ""
+    assert captured.err.startswith("failed:")
+    assert "already exists" in captured.err
+
+
+def test_cli_batch_maps_contract_error_to_exit_code_two(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    input_directory = tmp_path / "input"
+    output_directory = tmp_path / "output"
+    input_directory.mkdir()
+    output_directory.mkdir()
+    _save_rgb(input_directory / "input.png")
+    argv = [
+        "batch",
+        "image",
+        "--input-dir",
+        str(input_directory),
+        "--output-dir",
+        str(output_directory),
+        "--box",
+        "1,1,1,1",
+    ]
+
+    monkeypatch.setattr(
+        cli_module,
+        "plan_directory_batch",
+        lambda request: (_ for _ in ()).throw(
+            BatchContractError("invalid contract", code="invalid_contract")
+        ),
+    )
+    assert cli_module.main(argv) == 2
+    assert capsys.readouterr().err.strip() == "failed: invalid contract"
+
+
+def test_cli_batch_reports_adapter_error_without_manifest_line(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    input_directory = tmp_path / "input"
+    output_directory = tmp_path / "output"
+    input_directory.mkdir()
+    output_directory.mkdir()
+
+    exit_code = cli_module.main(
+        [
+            "batch",
+            "image",
+            "--input-dir",
+            str(input_directory),
+            "--output-dir",
+            str(output_directory),
+            "--box",
+            "1,1,1,1",
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert exit_code == 2
+    assert captured.out == ""
+    assert captured.err.strip() == "failed: input directory contains no supported images"
+
+
+def test_cli_batch_maps_fatal_orchestration_error_and_restores_sigint(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    input_directory = tmp_path / "input"
+    output_directory = tmp_path / "output"
+    input_directory.mkdir()
+    output_directory.mkdir()
+    _save_rgb(input_directory / "input.png")
+    previous_handler = signal.getsignal(signal.SIGINT)
+
+    def fail_run(
+        plan: BatchPlan,
+        *,
+        cancellation_token: CancellationToken | None = None,
+    ) -> BatchSummary:
+        del plan, cancellation_token
+        raise BatchRunError("state failed", code="state_failed")
+
+    monkeypatch.setattr(cli_module, "run_batch", fail_run)
+    exit_code = cli_module.main(
+        [
+            "batch",
+            "image",
+            "--input-dir",
+            str(input_directory),
+            "--output-dir",
+            str(output_directory),
+            "--box",
+            "1,1,1,1",
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert exit_code == 4
+    assert captured.out == ""
+    assert captured.err.strip() == "failed: state failed"
+    assert signal.getsignal(signal.SIGINT) == previous_handler
+
+
+def test_cli_batch_ctrl_c_marks_items_cancelled_and_returns_130(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    input_directory = tmp_path / "input"
+    output_directory = tmp_path / "output"
+    input_directory.mkdir()
+    output_directory.mkdir()
+    _save_rgb(input_directory / "input.png")
+    previous_handler = signal.getsignal(signal.SIGINT)
+
+    def cancel_before_run(
+        plan: BatchPlan,
+        *,
+        cancellation_token: CancellationToken | None = None,
+    ) -> BatchSummary:
+        handler = signal.getsignal(signal.SIGINT)
+        assert callable(handler)
+        handler(signal.SIGINT, None)
+        assert cancellation_token is not None
+        return run_batch(plan, cancellation_token=cancellation_token)
+
+    monkeypatch.setattr(cli_module, "run_batch", cancel_before_run)
+    exit_code = cli_module.main(
+        [
+            "batch",
+            "image",
+            "--input-dir",
+            str(input_directory),
+            "--output-dir",
+            str(output_directory),
+            "--box",
+            "1,1,1,1",
+        ]
+    )
+
+    captured = capsys.readouterr()
+    _, results_file, _ = _batch_state_files(output_directory)
+    record = _result_records(results_file)[0]
+    assert exit_code == 130
+    assert "cancelled=1" in captured.out
+    assert captured.err == ""
+    assert record["status"] == "cancelled"
+    assert cast(dict[str, object], record["error"])["code"] == "user_cancelled"
+    assert signal.getsignal(signal.SIGINT) == previous_handler
+    assert not (output_directory / "input.png").exists()
+
+
+@pytest.mark.parametrize("failure_stage", ["install", "restore"])
+def test_cli_batch_maps_signal_handler_failures_to_exit_code_four(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+    failure_stage: str,
+) -> None:
+    input_directory = tmp_path / "input"
+    output_directory = tmp_path / "output"
+    input_directory.mkdir()
+    output_directory.mkdir()
+    _save_rgb(input_directory / "input.png")
+    calls = 0
+
+    def fail_signal(sig: int, handler: object) -> object:
+        nonlocal calls
+        del sig, handler
+        calls += 1
+        if failure_stage == "install" or calls == 2:
+            raise ValueError(f"{failure_stage} failed")
+        return signal.SIG_DFL
+
+    monkeypatch.setattr(signal, "signal", fail_signal)
+    exit_code = cli_module.main(
+        [
+            "batch",
+            "image",
+            "--input-dir",
+            str(input_directory),
+            "--output-dir",
+            str(output_directory),
+            "--box",
+            "1,1,1,1",
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert exit_code == 4
+    assert captured.out == ""
+    assert f"{failure_stage} failed" in captured.err
+
+
+def test_cli_batch_help_documents_authorized_use_and_b1_limits(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    with pytest.raises(SystemExit) as captured_exit:
+        cli_module.main(["batch", "image", "--help"])
+
+    captured = capsys.readouterr()
+    normalized_help = " ".join(captured.out.split())
+    assert captured_exit.value.code == 0
+    assert "authorized to edit" in normalized_help
+    assert "one worker" in normalized_help
+    assert "does not support resume or retry" in normalized_help
+    assert "--mask-dir" in normalized_help
+    assert "--fail-fast" in normalized_help
 
 
 @pytest.mark.parametrize(

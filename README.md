@@ -39,6 +39,11 @@ Detect / Prompt
 
 Localization and inpainting remain separate so that detectors, segmenters, mask refiners, inpainters, and quality evaluators can evolve independently.
 
+## Usage
+
+See the [CLI guide](docs/CLI.md) for authorized single-image and sequential batch examples,
+machine-readable results, exit codes, and current algorithm limitations.
+
 ## Design principles
 
 - Prefer user clicks, boxes, or masks for the first general-purpose MVP.
