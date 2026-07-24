@@ -50,6 +50,20 @@ uv run ruff format .
 Default tests must stay CPU-only, offline, deterministic, and free of model downloads. Add
 explicitly marked optional suites when a later milestone introduces GPU or model coverage.
 
+## Model execution environments
+
+The current maintainer workstation is not a real-model execution target. This does not block M2:
+
+- default local development and CI remain model-free;
+- AutoDL is the initial reference host for pinned LaMa CPU/CUDA validation;
+- another compatible Linux host may reproduce the same evidence;
+- the project CLI runs directly on the compute host rather than calling a premature remote API.
+
+Follow [MODEL_EXECUTION.md](MODEL_EXECUTION.md) for the environment split, AutoDL storage rules,
+optional runtime groups, model integrity check, pytest markers, CLI shape, and acceptance evidence
+fields. Commands documented there are available only after the corresponding M2 implementation
+slice exists in the checked-out revision.
+
 ## Source layout
 
 ```text

@@ -8,7 +8,9 @@ ONNX inpainter while preserving the M1 image, mask, output-safety, and adapter b
 The initial model artifact is conditionally approved for non-bundled research integration. Model
 redistribution and commercial-use conclusions remain outside that approval. See
 [MODEL_LICENSES.md](../../MODEL_LICENSES.md) and
-[ADR 0002](../adr/0002-m2-lama-onnx-runtime.md).
+[ADR 0002](../adr/0002-m2-lama-onnx-runtime.md). The local/AutoDL validation split and portable
+reproduction procedure are defined in the
+[model execution guide](../MODEL_EXECUTION.md).
 
 ## 1. Goals
 
@@ -22,6 +24,7 @@ M2 must:
 - keep CPU and CUDA providers explicit and report the provider actually used;
 - install and cache model artifacts outside Git with mandatory SHA-256 verification;
 - keep OpenCV Telea and Navier-Stokes usable without model dependencies;
+- keep ordinary local development complete without installing or running the real model;
 - compare LaMa against the M1 baselines on reproducible synthetic or authorized inputs;
 - introduce the M2 portion of B2: verified resume and provider-aware bounded scheduling.
 
@@ -34,7 +37,7 @@ M2 does not include:
 - arbitrary third-party LaMa files or a general model registry;
 - training, fine-tuning, or converting LaMa weights inside the normal application;
 - tiling or a claim of native arbitrary-resolution ONNX inference;
-- remote inference or uploading user media;
+- remote inference, a workstation-to-AutoDL upload API, or any other hosted model service;
 - desktop, web, or API adapters;
 - video processing or temporal consistency;
 - automatic quality claims that LaMa is better for every image;
@@ -67,6 +70,22 @@ The LaMa adapter must not perform file discovery, output encoding, CLI rendering
 transitions, or network downloads. The model store owns installation and integrity checks. The
 application service owns the session lifecycle and passes an already validated model path to the
 adapter.
+
+### Execution environment split
+
+The current maintainer workstation is not a real-model execution target. This is an environment
+constraint, not a core architecture dependency.
+
+- The local workstation and ordinary CI run all default offline tests, OpenCV integration,
+  crop-transform tests, CLI tests, and fake ONNX session tests.
+- AutoDL is the initial reference host for the pinned model, CPU real-model smoke test, CUDA
+  provider test, and resource benchmarks.
+- Any compatible Linux host may replace AutoDL when it uses the same Git commit, lockfile, model
+  SHA-256, normalized configuration, and evidence fields.
+- The project CLI runs on the compute host beside the model and authorized media. M2 does not
+  turn AutoDL into an inference server.
+
+The full procedure is in [MODEL_EXECUTION.md](../MODEL_EXECUTION.md).
 
 ## 4. Preserved data contract
 
@@ -141,12 +160,16 @@ Installation rules:
 
 The model store owns the cache path and descriptor. A user-supplied path is accepted only when
 its contents match the reviewed size and SHA-256. Support for arbitrary descriptors is deferred.
+On AutoDL, the reference cache is outside the Git checkout under
+`/root/autodl-tmp/wrl-models`; other hosts use an equivalent user-controlled cache.
 
 ## 7. Runtime dependencies and providers
 
 ONNX Runtime remains optional and is imported lazily.
 
-- CPU and CUDA packages belong to separate, mutually exclusive optional dependency groups.
+- CPU uses the `lama-onnx-cpu` optional dependency group.
+- CUDA uses the `lama-onnx-cuda` optional dependency group.
+- The CPU and CUDA groups are mutually exclusive in one environment.
 - Installing neither group leaves all OpenCV commands operational.
 - `cpu` maps to `CPUExecutionProvider`.
 - `cuda` requires `CUDAExecutionProvider` to be present before creating the session.
@@ -307,6 +330,13 @@ An explicitly marked suite must:
 - run CUDA only when the optional environment declares compatible hardware and runtime;
 - report the runtime and provider versions used.
 
+The `model` pytest marker selects pinned real-artifact tests. The `gpu` marker additionally
+requires a compatible GPU provider. These markers are registered only when their implementation
+slice is added and are never part of the default offline suite.
+
+The reference run occurs on AutoDL, but the tests must not import AutoDL APIs or depend on its
+filesystem outside an adapter-provided cache path.
+
 The pinned artifact must complete one real CPU smoke test before M2 acceptance.
 
 ## 14. Benchmark and review evidence
@@ -345,6 +375,8 @@ M2 is complete only when:
 - [ ] B2 resume includes the exact model and transform fingerprints;
 - [ ] provider-aware concurrency and memory limits are tested;
 - [ ] OpenCV/LaMa comparison evidence records quality and resource limitations;
+- [ ] AutoDL or an equivalent host produces a reviewed environment record following
+      `MODEL_EXECUTION.md`;
 - [ ] both language versions of affected documentation are updated;
 - [ ] redistribution remains disabled unless a later license review explicitly approves it.
 

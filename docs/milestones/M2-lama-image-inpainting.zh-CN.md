@@ -6,7 +6,8 @@
 
 初始模型产物已获得“非捆绑研究集成”的条件准入。该准入不包括模型再分发，也不对商业用途作出结论。详见
 [MODEL_LICENSES.md](../../MODEL_LICENSES.md) 和
-[ADR 0002](../adr/0002-m2-lama-onnx-runtime.zh-CN.md)。
+[ADR 0002](../adr/0002-m2-lama-onnx-runtime.zh-CN.md)。本地/AutoDL 验证拆分和可移植复现步骤记录在
+[模型执行指南](../MODEL_EXECUTION.zh-CN.md)。
 
 ## 1. 目标
 
@@ -20,6 +21,7 @@ M2 必须：
 - 显式选择 CPU 与 CUDA provider，并报告实际使用的 provider；
 - 在 Git 之外安装和缓存模型产物，并强制校验 SHA-256；
 - 在不安装模型依赖时继续提供 OpenCV Telea 与 Navier-Stokes；
+- 在不安装或运行真实模型时仍能完成普通本地开发；
 - 在可复现的合成或已授权输入上比较 LaMa 与 M1 基线；
 - 引入 M2 对应的 B2 能力：已验证恢复与 provider 感知的有界调度。
 
@@ -32,7 +34,7 @@ M2 不包括：
 - 任意第三方 LaMa 文件或通用模型注册表；
 - 在常规应用内训练、微调或转换 LaMa 权重；
 - 切片推理，或宣称 ONNX 原生支持任意分辨率；
-- 远程推理或上传用户媒体；
+- 远程推理、工作站到 AutoDL 的上传 API 或其他托管模型服务；
 - 桌面端、Web 或 API 适配器；
 - 视频处理或时序一致性；
 - 声称 LaMa 对所有图片都自动优于传统算法；
@@ -62,6 +64,17 @@ OpenCV 适配器              LaMa ONNX 适配器
 ```
 
 LaMa 适配器不得执行文件发现、输出编码、CLI 渲染、批次状态迁移或网络下载。模型存储负责安装和完整性校验。应用服务负责会话生命周期，并向适配器传入已经验证的模型路径。
+
+### 执行环境拆分
+
+当前维护者工作站不作为真实模型执行环境。这是环境约束，不是核心架构依赖。
+
+- 本地工作站和普通 CI 运行全部默认离线测试、OpenCV 集成、裁剪变换测试、CLI 测试和假 ONNX 会话测试。
+- AutoDL 是固定模型、CPU 真实模型冒烟、CUDA provider 测试与资源基准的初始参考主机。
+- 任何兼容 Linux 主机都可以替代 AutoDL，前提是使用相同 Git 提交、锁文件、模型 SHA-256、规范化配置与证据字段。
+- 项目 CLI 在算力主机上与模型和已授权媒体一起运行。M2 不会把 AutoDL 变成推理服务器。
+
+完整步骤见 [MODEL_EXECUTION.zh-CN.md](../MODEL_EXECUTION.zh-CN.md)。
 
 ## 4. 保持不变的数据契约
 
@@ -126,12 +139,15 @@ wrl model status lama-onnx-fp32 [--cache-dir DIR] [--json]
 - 缺少产物时返回可操作错误，且不得启动下载。
 
 模型存储拥有缓存路径与描述符。用户提供的路径只有在内容匹配已审查大小和 SHA-256 时才能使用。任意描述符支持推迟到后续阶段。
+在 AutoDL 上，参考缓存位于 Git 工作区外的 `/root/autodl-tmp/wrl-models`；其他主机使用等价的用户控制缓存。
 
 ## 7. 运行时依赖与 provider
 
 ONNX Runtime 保持可选，并采用惰性导入。
 
-- CPU 和 CUDA 包属于两个互斥的可选依赖组；
+- CPU 使用 `lama-onnx-cpu` 可选依赖组；
+- CUDA 使用 `lama-onnx-cuda` 可选依赖组；
+- 同一环境中的 CPU 与 CUDA 组互斥；
 - 两组都不安装时，全部 OpenCV 命令仍可运行；
 - `cpu` 映射到 `CPUExecutionProvider`；
 - `cuda` 在创建会话前必须确认存在 `CUDAExecutionProvider`；
@@ -273,6 +289,10 @@ M2 开始实现 B2，但不复制单图流水线：
 - 仅在可选环境声明兼容硬件与运行时后运行 CUDA；
 - 报告实际使用的运行时和 provider 版本。
 
+`model` pytest marker 选择固定真实产物测试；`gpu` marker 进一步要求兼容 GPU provider。只有加入对应实现切片时才注册这些 marker，它们永远不属于默认离线套件。
+
+参考运行发生在 AutoDL，但测试不得导入 AutoDL API，也不得依赖适配器传入缓存路径之外的 AutoDL 文件系统。
+
 M2 验收前，固定产物必须完成一次真实 CPU 冒烟测试。
 
 ## 14. 基准与评审证据
@@ -308,6 +328,7 @@ M2 基准记录：
 - [ ] B2 恢复包含准确模型与变换指纹；
 - [ ] provider 感知并发与内存限制具有测试；
 - [ ] OpenCV/LaMa 对比证据记录质量和资源限制；
+- [ ] AutoDL 或等价主机按照 `MODEL_EXECUTION.zh-CN.md` 生成经过评审的环境记录；
 - [ ] 受影响文档的两个语言版本同步更新；
 - [ ] 除非后续许可证审查明确批准，否则继续禁止再分发模型。
 
