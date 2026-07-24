@@ -48,10 +48,10 @@ Desktop.ini
 !.env.example
 
 # Model weights and runtime caches
-models/
-weights/
-checkpoints/
-.cache/
+/models/
+/weights/
+/checkpoints/
+/.cache/
 *.ckpt
 *.onnx
 *.pt
@@ -60,14 +60,14 @@ checkpoints/
 *.engine
 
 # Generated media, datasets, and experiment artifacts
-data/
-datasets/
-inputs/
-outputs/
-results/
-runs/
-artifacts/
-benchmarks/results/
+/data/
+/datasets/
+/inputs/
+/outputs/
+/results/
+/runs/
+/artifacts/
+/benchmarks/results/
 *.log
 
 # Temporary files
