@@ -7,13 +7,12 @@ A learning-oriented image and video watermark removal platform built with OpenCV
 > [!IMPORTANT]
 > This project is intended only for images and videos you own, created, or are authorized to edit. It is not designed to bypass copyright protection, provenance systems, platform disclosures, or paid-preview watermarks.
 
-## Media support
+## Media scope
 
-| Media | Status | Planned pipeline |
-|---|---|---|
-| Images | In development | Detection / Prompt → SAM → LaMa |
-| Videos: fixed marks | Planned | Static mask → frame inpainting |
-| Videos: moving marks | Planned | SAM 2 tracking → temporal inpainting |
+| Media | Research scope |
+|---|---|
+| Images | Visible-overlay localization, mask refinement, inpainting, evaluation, and output |
+| Videos | Fixed and moving visible-overlay localization, propagation, inpainting, evaluation, and output |
 
 ## Project goals
 
