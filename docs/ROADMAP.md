@@ -16,13 +16,14 @@ This document records the planned engineering sequence for Watermark Removal Lab
 
 ## Capability tracks
 
-The roadmap has eight primary milestones and one cross-cutting batch-processing track:
+The roadmap has eight primary milestones plus cross-cutting batch-processing and desktop tracks:
 
 | Track | Purpose |
 |---|---|
 | M1–M6 | Image localization, inpainting, evaluation, and deployment |
 | M7–M8 | Baseline and temporally consistent video processing |
 | B1–B4 | Batch orchestration that incrementally reuses milestone pipelines |
+| D1 | Desktop adapter after the M1/B1 CLI contracts are validated |
 
 Batch processing does not become a separate M9 because it must evolve with each media pipeline:
 
@@ -32,6 +33,8 @@ Batch processing does not become a separate M9 because it must evolve with each 
 - **B4, aligned with M7–M8:** long-running video and mixed-media batches.
 
 The detailed batch contract is defined in [BATCH_PROCESSING.md](BATCH_PROCESSING.md).
+
+The desktop track begins only after the M1 single-image and B1 batch CLI exit gates pass. Qt, Electron, or another framework is selected through a focused prototype and a new ADR, not by changing the headless core.
 
 ## M1: OpenCV image baseline
 
@@ -178,6 +181,7 @@ Expose reviewed image pipelines through service and interactive adapters.
 - model cache, queue, concurrency, timeout, cancellation, and resource limits;
 - asynchronous jobs and status endpoints;
 - B3 queue integration using the same batch request/result contracts.
+- production packaging and distribution for the selected D1 desktop adapter, if the desktop track has been activated.
 
 Suggested endpoints:
 
@@ -190,6 +194,7 @@ Suggested endpoints:
 ### Exit gate
 
 - synchronous and queued behavior share application services;
+- desktop, web, and API adapters reuse the same application and batch services;
 - uploads, outputs, timeouts, and cancellations have bounded resource behavior;
 - the API does not expose server-local arbitrary paths;
 - deployment packages include applicable licenses and notices.
@@ -286,6 +291,34 @@ Add mask propagation and video inpainting behavior designed for cross-frame cons
 - safe cancellation and restart;
 - partial-work cleanup and final-output atomicity;
 - mixed image/video manifests only after both individual pipelines are stable.
+
+## Desktop application track
+
+### D1: Desktop adapter after CLI validation
+
+Entry gate:
+
+- M1 single-image and B1 batch CLI exit gates pass;
+- request, result, progress, cancellation, and error contracts have integration coverage;
+- the headless core can run without importing a GUI framework.
+
+Required scope:
+
+- perform a focused Qt/Electron/alternative prototype covering packaging, image interaction, Python/model integration, distribution size, updates, and crash isolation;
+- record the selected framework and trade-offs in a new ADR;
+- open authorized images and select a box or mask;
+- preview the final mask and before/after result;
+- run single-image and B1 batch operations through public application services;
+- expose progress, cancellation, structured errors, overwrite policy, and batch summary;
+- add SAM/LaMa/video UI only after the corresponding milestone exit gate passes.
+
+Exit gate:
+
+- no algorithm or batch orchestration logic is duplicated in the desktop adapter;
+- at least one target-platform package is reproducibly built and documented;
+- model caches and optional runtimes remain owned by the application layer;
+- applicable licenses and third-party notices are included in the package;
+- closing or cancelling the UI cannot publish a partial final output.
 
 ## Change control
 
