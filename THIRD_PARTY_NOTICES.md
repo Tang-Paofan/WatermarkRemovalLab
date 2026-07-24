@@ -42,3 +42,17 @@ Add reviewed notices below. Do not remove an existing notice while the correspon
 - License text:
   [Pillow 12.3.0](https://github.com/python-pillow/Pillow/blob/12.3.0/LICENSE).
 - Distribution: external runtime dependency; not copied into this repository or project wheel.
+
+### OpenCV Python Headless
+
+- Purpose: CPU-only Telea and Navier-Stokes image inpainting without GUI bindings.
+- Locked version: 4.13.0.92.
+- Package/source: <https://github.com/opencv/opencv-python/tree/92>.
+- Packaging scripts: MIT License
+  ([license text](https://github.com/opencv/opencv-python/blob/92/LICENSE.txt)).
+- OpenCV: Apache License 2.0
+  ([OpenCV 4.13.0 license](https://github.com/opencv/opencv/blob/4.13.0/LICENSE)).
+- Bundled binary notices: the wheel includes FFmpeg under LGPL-2.1 and other third-party
+  components documented in the exact package
+  [third-party license file](https://github.com/opencv/opencv-python/blob/92/LICENSE-3RD-PARTY.txt).
+- Distribution: external runtime dependency; not copied into this repository or project wheel.
