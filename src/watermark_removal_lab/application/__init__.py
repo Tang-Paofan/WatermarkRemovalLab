@@ -1,5 +1,23 @@
 """Framework-neutral application services."""
 
+from watermark_removal_lab.application.batch import (
+    BATCH_SCHEMA_VERSION,
+    BatchCancellationReason,
+    BatchContractError,
+    BatchFailurePolicy,
+    BatchItemError,
+    BatchItemResult,
+    BatchItemStatus,
+    BatchMedia,
+    BatchOperation,
+    BatchPlan,
+    BatchPreflightError,
+    BatchSpec,
+    BatchSummary,
+    ImageBatchItemSpec,
+    PlannedImageBatchItem,
+    plan_batch,
+)
 from watermark_removal_lab.application.image_removal import (
     BoxMaskSource,
     ImageRemovalError,
@@ -16,7 +34,21 @@ from watermark_removal_lab.application.image_removal import (
 )
 
 __all__ = [
+    "BATCH_SCHEMA_VERSION",
+    "BatchCancellationReason",
+    "BatchContractError",
+    "BatchFailurePolicy",
+    "BatchItemError",
+    "BatchItemResult",
+    "BatchItemStatus",
+    "BatchMedia",
+    "BatchOperation",
+    "BatchPlan",
+    "BatchPreflightError",
+    "BatchSpec",
+    "BatchSummary",
     "BoxMaskSource",
+    "ImageBatchItemSpec",
     "ImageRemovalError",
     "ImageRemovalInputError",
     "ImageRemovalOutputError",
@@ -26,6 +58,8 @@ __all__ = [
     "ImageRemovalStatus",
     "MaskFileSource",
     "OverwritePolicy",
+    "PlannedImageBatchItem",
     "build_failed_image_removal_result",
+    "plan_batch",
     "remove_image",
 ]
