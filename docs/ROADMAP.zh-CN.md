@@ -81,6 +81,7 @@
 
 ### 退出门槛
 
+- 实现满足 [M2 规范](milestones/M2-lama-image-inpainting.zh-CN.md)；
 - 具体模型与权重许可证已登记到 `MODEL_LICENSES.md`；
 - 模型下载和完整性校验由用户明确触发；
 - provider 缺失和内存不足具有可操作错误；

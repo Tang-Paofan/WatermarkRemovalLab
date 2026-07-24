@@ -81,6 +81,8 @@ Add a model-based image inpainter while preserving the M1 request/result and mas
 
 ### Exit gate
 
+- implementation satisfies the
+  [M2 specification](milestones/M2-lama-image-inpainting.md);
 - exact model and weight licenses are recorded in `MODEL_LICENSES.md`;
 - model download and integrity verification are explicit;
 - missing providers and memory failures have actionable errors;
