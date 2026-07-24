@@ -117,6 +117,14 @@ Required behavior:
 
 ## 7. Image IO and output safety
 
+### Required format support
+
+- M1 must decode and encode PNG, JPEG `.jpg`, and JPEG `.jpeg`.
+- Directory discovery matches `.png`, `.jpg`, and `.jpeg` case-insensitively.
+- PNG is the required lossless and alpha-preserving output format.
+- JPEG output is supported only for images without alpha and is always reported as lossy.
+- BMP, WebP, TIFF, and other formats are outside the M1 exit gate unless they are explicitly documented and covered by integration tests.
+
 - Decode image orientation before box validation.
 - Normalize output orientation; full metadata preservation is not an M1 guarantee.
 - Preserve the original alpha channel exactly when the output format supports alpha.
@@ -188,19 +196,20 @@ wrl batch run MANIFEST.jsonl --output-dir OUTPUT_DIR
 The versioned JSON Lines manifest begins with one batch record, followed by item records:
 
 ```json
-{"record":"batch","schema_version":1,"defaults":{"method":"telea","radius":3,"dilate":1}}
+{"record":"batch","schema_version":1,"media":"image","operation":"remove","defaults":{"method":"telea","radius":3,"dilate":1}}
 {"record":"item","id":"sample-a","input":"inputs/a.png","output":"a.png","box":[10,20,120,40]}
 {"record":"item","id":"sample-b","input":"inputs/b.png","output":"b.png","mask":"masks/b.png","method":"ns"}
 ```
 
 Manifest rules:
 
+- the first record requires `media` set to `image` and `operation` set to `remove`;
 - item IDs are unique non-empty strings;
 - paths are relative to the manifest directory;
 - output paths are relative to `--output-dir`;
 - each item provides exactly one of `box` or `mask`;
 - item fields override batch defaults;
-- unknown schema versions fail before processing;
+- unknown schema versions, missing required fields, and unsupported media/operation values fail before processing;
 - duplicate output paths and in-place input/output paths fail preflight;
 - traversal outside declared roots is rejected;
 - item execution order matches manifest order.
@@ -210,13 +219,17 @@ The complete batch contract is defined in [../BATCH_PROCESSING.md](../BATCH_PROC
 ## 10. B1 execution behavior
 
 - B1 uses exactly one worker.
+- Preflight creates one stable `RUN_ID` for the run.
+- When `--results` is omitted, results default to `<OUTPUT_DIR>/.wrl-batch/<RUN_ID>/results.jsonl`; `run.json` and `summary.json` use the same state directory.
+- A custom `--results` path overrides only the JSON Lines result location and must not alias an input, mask, media output, or batch metadata file.
 - Default behavior continues after an item failure.
 - `--fail-fast` stops scheduling after the first failed item.
 - Completed outputs remain valid when later items fail.
 - Each item produces a result with `succeeded`, `skipped`, `failed`, or `cancelled` status.
 - Results are appended to a JSON Lines result file after each item.
 - The CLI prints totals for discovered, succeeded, skipped, failed, and cancelled items.
-- Ctrl+C stops after the active atomic step, marks remaining items unstarted/cancelled as applicable, and exits with 130.
+- Fail-fast marks every remaining unscheduled item as `cancelled` with reason `fail_fast`.
+- Ctrl+C stops after the active atomic step, marks every remaining unscheduled item as `cancelled` with reason `user_cancelled`, and exits with 130.
 - B1 does not resume an interrupted run; B2 introduces verified resume.
 
 ## 11. Result fields

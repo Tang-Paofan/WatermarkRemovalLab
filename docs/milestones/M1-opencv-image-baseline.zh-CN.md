@@ -117,6 +117,14 @@ wrl image remove input.png output.png --mask watermark-mask.png `
 
 ## 7. 图片 IO 与输出安全
 
+### 必需格式支持
+
+- M1 必须能够解码和编码 PNG、JPEG `.jpg` 与 JPEG `.jpeg`。
+- 目录发现以不区分大小写的方式匹配 `.png`、`.jpg` 和 `.jpeg`。
+- PNG 是必需的无损及 Alpha 保留输出格式。
+- JPEG 输出仅支持不包含 Alpha 的图片，并始终标记为有损。
+- BMP、WebP、TIFF 等其他格式不属于 M1 退出门槛，除非具有明确文档和集成测试。
+
 - 在边界框校验之前完成图片方向解码。
 - 输出方向进行归一化；M1 不保证完整保留全部元数据。
 - 输出格式支持 Alpha 时，必须逐字节保留原始 Alpha。
@@ -188,19 +196,20 @@ wrl batch run MANIFEST.jsonl --output-dir OUTPUT_DIR
 版本化 JSON Lines 清单以一个批次记录开始，后面是逐项记录：
 
 ```json
-{"record":"batch","schema_version":1,"defaults":{"method":"telea","radius":3,"dilate":1}}
+{"record":"batch","schema_version":1,"media":"image","operation":"remove","defaults":{"method":"telea","radius":3,"dilate":1}}
 {"record":"item","id":"sample-a","input":"inputs/a.png","output":"a.png","box":[10,20,120,40]}
 {"record":"item","id":"sample-b","input":"inputs/b.png","output":"b.png","mask":"masks/b.png","method":"ns"}
 ```
 
 清单规则：
 
+- 第一条记录必须包含值为 `image` 的 `media` 和值为 `remove` 的 `operation`；
 - 每个项 ID 都是唯一非空字符串；
 - 路径相对于清单所在目录；
 - 输出路径相对于 `--output-dir`；
 - 每个项必须且只能提供 `box` 或 `mask` 中的一个；
 - 项字段覆盖批次默认值；
-- 未知 schema 版本在处理前失败；
+- 未知 schema 版本、缺少必需字段以及不支持的媒体/操作值在处理前失败；
 - 重复输出路径和输入输出同路径在预检阶段失败；
 - 拒绝越过声明根目录的路径遍历；
 - 项执行顺序与清单顺序一致。
@@ -210,13 +219,17 @@ wrl batch run MANIFEST.jsonl --output-dir OUTPUT_DIR
 ## 10. B1 执行行为
 
 - B1 只使用一个 worker。
+- 预检为本次运行生成一个稳定的 `RUN_ID`。
+- 省略 `--results` 时，结果默认写入 `<OUTPUT_DIR>/.wrl-batch/<RUN_ID>/results.jsonl`；`run.json` 与 `summary.json` 位于同一个状态目录。
+- 自定义 `--results` 只覆盖 JSON Lines 结果位置，并且不得与输入、掩膜、媒体输出或批次元数据文件别名。
 - 默认在某项失败后继续。
 - `--fail-fast` 在首个失败项后停止调度。
 - 后续项失败时，已完成输出仍然有效。
 - 每项结果状态为 `succeeded`、`skipped`、`failed` 或 `cancelled`。
 - 每项结束后向 JSON Lines 结果文件追加一条记录。
 - CLI 汇总发现、成功、跳过、失败和取消数量。
-- Ctrl+C 在当前原子步骤后停止，按情况把剩余项标记为未开始/取消，并以 130 退出。
+- 快速失败把所有剩余未调度项标记为 `cancelled`，原因为 `fail_fast`。
+- Ctrl+C 在当前原子步骤后停止，把所有剩余未调度项标记为 `cancelled`，原因为 `user_cancelled`，并以 130 退出。
 - B1 不恢复中断任务；B2 引入经过校验的恢复机制。
 
 ## 11. 结果字段

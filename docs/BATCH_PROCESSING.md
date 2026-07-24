@@ -55,6 +55,7 @@ The eventual Python API should express framework-neutral equivalents of:
 ```text
 BatchSpec
   schema_version
+  media
   operation
   defaults
   items
@@ -250,7 +251,7 @@ Optional `fail-fast` behavior:
 - stop scheduling new items after the first failure;
 - allow the active atomic step to finish safely;
 - retain successful outputs;
-- mark unscheduled items as not started or cancelled in the summary.
+- record every unscheduled item as `cancelled` with reason `fail_fast`, so every discovered item has an unambiguous terminal status for that run.
 
 Fatal batch failures include an unreadable manifest, invalid output root, corrupted state store, or inability to commit result records. Fatal failures stop the run.
 
