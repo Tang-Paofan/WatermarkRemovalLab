@@ -17,7 +17,6 @@ ENV/
 build/
 dist/
 *.egg-info/
-.python-version
 
 # Notebooks
 .ipynb_checkpoints/
