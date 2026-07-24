@@ -137,6 +137,8 @@ def test_image_batch_item_rejects_invalid_request_structure(
         ({"source_root": cast(Path, ".")}, "invalid_path"),
         ({"output_root": cast(Path, ".")}, "invalid_path"),
         ({"mask_root": cast(Path, ".")}, "invalid_path"),
+        ({"protected_paths": []}, "invalid_path"),
+        ({"protected_paths": (cast(Path, "manifest.jsonl"),)}, "invalid_path"),
         ({"results_path": cast(Path, "results.jsonl")}, "invalid_path"),
         ({"items": ()}, "empty_batch"),
         ({"items": []}, "empty_batch"),

@@ -183,6 +183,64 @@ def test_plan_batch_supports_a_separate_mask_root(tmp_path: Path) -> None:
     assert plan.normalized_spec.mask_root == mask_root
 
 
+def test_plan_batch_protects_adapter_source_files(tmp_path: Path) -> None:
+    spec = _spec(tmp_path)
+    manifest_path = spec.source_root / "manifest.jsonl"
+    manifest_path.write_text("{}\n", encoding="utf-8")
+
+    plan = plan_batch(
+        replace(spec, protected_paths=(Path("manifest.jsonl"),)),
+        run_id="protected",
+    )
+
+    assert plan.normalized_spec.protected_paths == (manifest_path,)
+
+
+def test_plan_batch_rejects_missing_protected_file(tmp_path: Path) -> None:
+    spec = _spec(tmp_path)
+
+    _assert_preflight_error(
+        replace(spec, protected_paths=(Path("missing.jsonl"),)),
+        "invalid_protected_path",
+    )
+
+
+def test_plan_batch_rejects_protected_path_outside_source_root(tmp_path: Path) -> None:
+    spec = _spec(tmp_path)
+    outside = tmp_path / "outside.jsonl"
+    outside.write_text("{}\n", encoding="utf-8")
+
+    _assert_preflight_error(
+        replace(spec, protected_paths=(outside,)),
+        "path_outside_root",
+    )
+
+
+def test_plan_batch_rejects_output_aliasing_protected_file(tmp_path: Path) -> None:
+    root = tmp_path / "shared"
+    root.mkdir()
+    (root / "input.png").write_bytes(b"input")
+    manifest_path = root / "manifest.png"
+    manifest_path.write_bytes(b"manifest")
+    spec = BatchSpec(
+        source_root=root,
+        output_root=root,
+        protected_paths=(manifest_path,),
+        overwrite_policy=OverwritePolicy.REPLACE,
+        items=(
+            ImageBatchItemSpec(
+                "item-a",
+                _box_request(
+                    input_path=Path("input.png"),
+                    output_path=Path("manifest.png"),
+                ),
+            ),
+        ),
+    )
+
+    _assert_preflight_error(spec, "in_place_output")
+
+
 @pytest.mark.parametrize("run_id", ["", "bad/id", cast(str, 123)])
 def test_plan_batch_rejects_invalid_run_id(tmp_path: Path, run_id: str) -> None:
     _assert_preflight_error(_spec(tmp_path), "invalid_run_id", run_id=run_id)
@@ -435,6 +493,10 @@ def test_plan_batch_applies_overwrite_preflight_policy(tmp_path: Path) -> None:
         ),
         (
             lambda request: replace(request, radius=float("inf")),
+            "invalid_radius",
+        ),
+        (
+            lambda request: replace(request, radius=10**10000),
             "invalid_radius",
         ),
         (

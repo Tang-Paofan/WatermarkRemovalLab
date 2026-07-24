@@ -60,6 +60,21 @@ class BatchContractError(ValueError):
         self.code = code
 
 
+class BatchInputError(ValueError):
+    """Raised when an external batch input cannot produce a valid specification."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        code: str,
+        line_number: int | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.code = code
+        self.line_number = line_number
+
+
 @dataclass(frozen=True, slots=True)
 class BatchItemError:
     """Stable item error safe for machine-readable results."""
@@ -130,6 +145,7 @@ class BatchSpec:
     output_root: Path
     items: tuple[ImageBatchItemSpec, ...]
     mask_root: Path | None = None
+    protected_paths: tuple[Path, ...] = ()
     results_path: Path | None = None
     schema_version: int = BATCH_SCHEMA_VERSION
     media: BatchMedia = BatchMedia.IMAGE
@@ -159,6 +175,13 @@ class BatchSpec:
             raise BatchContractError("batch roots must be pathlib.Path values", code="invalid_path")
         if self.mask_root is not None and not isinstance(self.mask_root, Path):
             raise BatchContractError("mask root must be a pathlib.Path", code="invalid_path")
+        if not isinstance(self.protected_paths, tuple) or not all(
+            isinstance(path, Path) for path in self.protected_paths
+        ):
+            raise BatchContractError(
+                "protected paths must be a tuple of pathlib.Path values",
+                code="invalid_path",
+            )
         if self.results_path is not None and not isinstance(self.results_path, Path):
             raise BatchContractError(
                 "results path must be a pathlib.Path",

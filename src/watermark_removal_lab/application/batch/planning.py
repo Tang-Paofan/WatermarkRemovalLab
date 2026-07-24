@@ -140,7 +140,11 @@ def _item_validation_error(request: ImageRemovalRequest) -> BatchItemError | Non
             message="inpaint radius must be a real number",
             category="validation",
         )
-    if not math.isfinite(float(request.radius)) or float(request.radius) <= 0:
+    try:
+        normalized_radius = float(request.radius)
+    except OverflowError:
+        normalized_radius = math.inf
+    if not math.isfinite(normalized_radius) or normalized_radius <= 0:
         return BatchItemError(
             code="invalid_radius",
             message="inpaint radius must be finite and positive",
@@ -270,6 +274,23 @@ def _source_paths(items: tuple[PlannedImageBatchItem, ...]) -> tuple[Path, ...]:
     return tuple(paths)
 
 
+def _normalize_protected_paths(
+    paths: tuple[Path, ...],
+    *,
+    source_root: Path,
+) -> tuple[Path, ...]:
+    normalized: list[Path] = []
+    for path in paths:
+        resolved, _ = _resolve_within(path, root=source_root, role="protected")
+        if not resolved.is_file():
+            raise BatchPreflightError(
+                "protected path does not exist or is not a regular file",
+                code="invalid_protected_path",
+            )
+        normalized.append(resolved)
+    return tuple(normalized)
+
+
 def _destination_paths(
     items: tuple[PlannedImageBatchItem, ...],
 ) -> tuple[tuple[str, Path], ...]:
@@ -296,7 +317,7 @@ def _validate_destinations(
         key = _canonical_key(destination)
         if key in source_keys:
             raise BatchPreflightError(
-                f"item '{item_id}' output aliases an input or mask",
+                f"item '{item_id}' output aliases an input, mask, or protected file",
                 code="in_place_output",
             )
         previous_id = destination_keys.get(key)
@@ -348,6 +369,10 @@ def plan_batch(spec: BatchSpec, *, run_id: str | None = None) -> BatchPlan:
     mask_root = (
         source_root if spec.mask_root is None else _resolve_root(spec.mask_root, role="mask")
     )
+    protected_paths = _normalize_protected_paths(
+        spec.protected_paths,
+        source_root=source_root,
+    )
     _reject_duplicate_ids(spec.items)
 
     state_directory, _ = _resolve_within(
@@ -378,7 +403,7 @@ def plan_batch(spec: BatchSpec, *, run_id: str | None = None) -> BatchPlan:
     )
 
     destinations = _destination_paths(planned_items)
-    sources = _source_paths(planned_items)
+    sources = (*_source_paths(planned_items), *protected_paths)
     _validate_destinations(
         destinations=destinations,
         sources=sources,
@@ -422,6 +447,7 @@ def plan_batch(spec: BatchSpec, *, run_id: str | None = None) -> BatchPlan:
         source_root=source_root,
         output_root=output_root,
         mask_root=mask_root,
+        protected_paths=protected_paths,
         items=normalized_items,
         results_path=result_file,
     )
