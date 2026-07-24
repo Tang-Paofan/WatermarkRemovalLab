@@ -64,6 +64,7 @@ Prefer several small, coherent commits over one large commit.
 - Use synthetic, self-created, or explicitly licensed fixtures.
 - Treat exact pixels outside the final refined mask as an invariant before lossy encoding.
 - Report quality, latency, RAM, and VRAM measurements with enough context to reproduce them.
+- Follow the setup and verification commands in the [development guide](docs/DEVELOPMENT.md).
 
 ## Models and third-party material
 

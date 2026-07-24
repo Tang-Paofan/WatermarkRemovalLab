@@ -64,6 +64,7 @@ DOC:Document binary mask conventions
 - 测试素材必须是合成、自制或具有明确许可的素材。
 - 在有损编码之前，最终细化掩膜之外的像素必须保持完全一致。
 - 报告质量、延迟、RAM 和 VRAM 数据时，应提供足以复现的上下文。
+- 按照[开发指南](docs/DEVELOPMENT.zh-CN.md)完成环境准备并运行验证命令。
 
 ## 模型与第三方材料
 

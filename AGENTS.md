@@ -143,6 +143,18 @@ Critical assertions include:
 
 Before handoff, run the repository-approved formatter, linter, type checker, unit tests, and relevant integration tests. If the repository does not yet define a command, do not invent a successful result—state what was and was not available.
 
+The repository-approved baseline commands are:
+
+```text
+uv run ruff format --check .
+uv run ruff check .
+uv run mypy
+uv run pytest
+uv build --no-sources
+```
+
+See [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) for environment setup and command details.
+
 ## 9. Models, dependencies, and licenses
 
 - Add only necessary dependencies and separate runtime, development, optional-model, and platform-specific groups.
