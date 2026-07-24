@@ -9,8 +9,10 @@ Before implementation or repository changes:
 1. inspect the working tree and existing files;
 2. read [CONTRIBUTING.md](CONTRIBUTING.md);
 3. read [docs/CODING_STANDARDS.md](docs/CODING_STANDARDS.md);
-4. read relevant architecture decisions under `docs/adr/`;
-5. inspect [MODEL_LICENSES.md](MODEL_LICENSES.md) and [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) when models, datasets, copied code, media, or binaries are involved.
+4. read [docs/ROADMAP.md](docs/ROADMAP.md) and the relevant specification under `docs/milestones/`;
+5. read relevant architecture decisions under `docs/adr/`;
+6. read [docs/BATCH_PROCESSING.md](docs/BATCH_PROCESSING.md) when batch behavior is involved;
+7. inspect [MODEL_LICENSES.md](MODEL_LICENSES.md) and [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) when models, datasets, copied code, media, or binaries are involved.
 
 Do not overwrite, discard, reformat, stage, or commit unrelated user changes. If the requested scope conflicts with existing work, stop and explain the conflict.
 

@@ -10,7 +10,8 @@ Thank you for helping improve Watermark Removal Lab. Contributions must preserve
 - Do not contribute platform-specific logic intended to remove paid-preview or copyright-protection watermarks.
 - Do not commit model weights, datasets, generated media, credentials, or local environment files.
 - Discuss large architecture changes before implementation.
-- Read the [coding standards](docs/CODING_STANDARDS.md) and the accepted [CLI-first architecture decision](docs/adr/0001-cli-first-core.md).
+- Read the [coding standards](docs/CODING_STANDARDS.md), [engineering roadmap](docs/ROADMAP.md), relevant milestone specification, and accepted [CLI-first architecture decision](docs/adr/0001-cli-first-core.md).
+- Read the [batch-processing design](docs/BATCH_PROCESSING.md) before changing directory, manifest, queue, resume, retry, or multi-item behavior.
 
 ## Change workflow
 

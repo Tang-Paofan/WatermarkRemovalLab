@@ -10,7 +10,8 @@
 - 不得贡献以移除付费预览或版权保护水印为目标的平台专用逻辑。
 - 不得提交模型权重、数据集、生成媒体、凭据或本地环境文件。
 - 大型架构变更应在实现前讨论。
-- 请阅读[编码规范](docs/CODING_STANDARDS.zh-CN.md)和已接受的 [CLI 优先架构决策](docs/adr/0001-cli-first-core.zh-CN.md)。
+- 请阅读[编码规范](docs/CODING_STANDARDS.zh-CN.md)、[工程路线图](docs/ROADMAP.zh-CN.md)、相关里程碑规范和已接受的 [CLI 优先架构决策](docs/adr/0001-cli-first-core.zh-CN.md)。
+- 修改目录、清单、队列、恢复、重试或多项处理行为前，请阅读[批量处理设计](docs/BATCH_PROCESSING.zh-CN.md)。
 
 ## 变更流程
 
