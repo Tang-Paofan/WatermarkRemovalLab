@@ -75,6 +75,14 @@ class BatchInputError(ValueError):
         self.line_number = line_number
 
 
+class BatchRunError(RuntimeError):
+    """Raised when batch orchestration or durable state publication fails."""
+
+    def __init__(self, message: str, *, code: str) -> None:
+        super().__init__(message)
+        self.code = code
+
+
 @dataclass(frozen=True, slots=True)
 class BatchItemError:
     """Stable item error safe for machine-readable results."""

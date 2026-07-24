@@ -11,6 +11,7 @@ from watermark_removal_lab.application.batch.contracts import (
     BatchMedia,
     BatchOperation,
     BatchPlan,
+    BatchRunError,
     BatchSpec,
     ImageBatchItemSpec,
     PlannedImageBatchItem,
@@ -20,6 +21,15 @@ from watermark_removal_lab.application.batch.directory import (
     DirectoryOutputFormat,
     build_directory_batch_spec,
     plan_directory_batch,
+)
+from watermark_removal_lab.application.batch.execution import (
+    BatchCancellationToken,
+    BatchProgressEvent,
+    BatchProgressKind,
+    BatchProgressSink,
+    CancellationToken,
+    ImageRemovalService,
+    run_batch,
 )
 from watermark_removal_lab.application.batch.manifest import (
     ManifestBatchRequest,
@@ -38,6 +48,7 @@ from watermark_removal_lab.application.batch.results import (
 __all__ = [
     "BATCH_SCHEMA_VERSION",
     "BatchCancellationReason",
+    "BatchCancellationToken",
     "BatchContractError",
     "BatchFailurePolicy",
     "BatchInputError",
@@ -48,11 +59,17 @@ __all__ = [
     "BatchOperation",
     "BatchPlan",
     "BatchPreflightError",
+    "BatchProgressEvent",
+    "BatchProgressKind",
+    "BatchProgressSink",
+    "BatchRunError",
     "BatchSpec",
     "BatchSummary",
+    "CancellationToken",
     "DirectoryBatchRequest",
     "DirectoryOutputFormat",
     "ImageBatchItemSpec",
+    "ImageRemovalService",
     "ManifestBatchRequest",
     "PlannedImageBatchItem",
     "build_directory_batch_spec",
@@ -60,4 +77,5 @@ __all__ = [
     "plan_batch",
     "plan_directory_batch",
     "plan_manifest_batch",
+    "run_batch",
 ]
