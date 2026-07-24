@@ -30,6 +30,9 @@ dependencies = [
     "pillow>=12,<13",
 ]
 
+[project.scripts]
+wrl = "watermark_removal_lab.cli:main"
+
 [dependency-groups]
 dev = [
     "mypy",
