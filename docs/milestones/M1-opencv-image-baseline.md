@@ -299,18 +299,21 @@ All default tests are CPU-only, offline, and use synthetic fixtures.
 
 M1 is complete only when:
 
-- [ ] single-image box and mask workflows run through one application service;
-- [ ] Telea and NS are selectable and tested;
-- [ ] final-mask exterior pixels are unchanged before lossy encoding;
-- [ ] alpha is preserved for supported outputs;
-- [ ] inputs are never modified in place;
-- [ ] output writes are atomic and overwrite behavior is explicit;
-- [ ] directory and manifest B1 batches reuse the single-image service;
-- [ ] batch ordering and results are deterministic;
-- [ ] partial failures are visible and do not invalidate completed items;
-- [ ] all required unit and integration tests pass offline on CPU;
-- [ ] CLI help and examples document limitations and responsible use;
-- [ ] no model, GUI, video, or automatic-detection dependency is introduced.
+- [x] single-image box and mask workflows run through one application service;
+- [x] Telea and NS are selectable and tested;
+- [x] final-mask exterior pixels are unchanged before lossy encoding;
+- [x] alpha is preserved for supported outputs;
+- [x] inputs are never modified in place;
+- [x] output writes are atomic and overwrite behavior is explicit;
+- [x] directory and manifest B1 batches reuse the single-image service;
+- [x] batch ordering and results are deterministic;
+- [x] partial failures are visible and do not invalidate completed items;
+- [x] all required unit and integration tests pass offline on CPU;
+- [x] CLI help and examples document limitations and responsible use;
+- [x] no model, GUI, video, or automatic-detection dependency is introduced.
+
+Acceptance evidence is recorded in the
+[M1/B1 acceptance report](../acceptance/M1-B1-acceptance.md).
 
 ## 15. Suggested implementation slices
 
