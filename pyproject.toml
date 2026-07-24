@@ -9,7 +9,7 @@ description = "A learning-oriented image and video watermark removal platform."
 readme = "README.md"
 requires-python = ">=3.11,<3.14"
 license = "Apache-2.0"
-license-files = ["LICENSE"]
+license-files = ["LICENSE", "THIRD_PARTY_NOTICES.md"]
 authors = [{ name = "Tang-Paofan" }]
 keywords = ["computer-vision", "image-inpainting", "video-inpainting", "watermark-removal"]
 classifiers = [
@@ -26,6 +26,7 @@ classifiers = [
 ]
 dependencies = [
     "numpy>=2,<3",
+    "pillow>=12,<13",
 ]
 
 [dependency-groups]

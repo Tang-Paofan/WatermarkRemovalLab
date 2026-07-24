@@ -2,7 +2,9 @@
 
 Watermark Removal Lab is licensed under Apache License 2.0. Third-party source code, models, weights, datasets, media, fonts, binaries, and tools retain their own licenses and copyright notices.
 
-No third-party code or distributable assets are currently bundled in this repository beyond standard license references and project documentation.
+No third-party source code or media assets are copied directly into this repository. Runtime
+dependencies listed below are resolved through `uv.lock` and installed separately by the package
+manager; they retain their upstream licenses.
 
 ## Notice policy
 
@@ -19,4 +21,24 @@ Add reviewed notices below. Do not remove an existing notice while the correspon
 
 ## Notices
 
-_None currently._
+### NumPy
+
+- Purpose: canonical image and mask arrays plus pure mask transformations.
+- Locked versions: 2.4.6 for Python 3.11; 2.5.1 for Python 3.12–3.13.
+- Source: <https://github.com/numpy/numpy>
+- License: BSD 3-Clause License.
+- License texts:
+  [NumPy 2.4.6](https://github.com/numpy/numpy/blob/v2.4.6/LICENSE.txt) and
+  [NumPy 2.5.1](https://github.com/numpy/numpy/blob/v2.5.1/LICENSE.txt).
+- Distribution: external runtime dependency; not copied into this repository or project wheel.
+
+### Pillow
+
+- Purpose: PNG/JPEG decoding, color-mode normalization, transparency extraction, and EXIF
+  orientation handling.
+- Locked version: 12.3.0.
+- Source: <https://github.com/python-pillow/Pillow>
+- License: MIT-CMU License.
+- License text:
+  [Pillow 12.3.0](https://github.com/python-pillow/Pillow/blob/12.3.0/LICENSE).
+- Distribution: external runtime dependency; not copied into this repository or project wheel.
