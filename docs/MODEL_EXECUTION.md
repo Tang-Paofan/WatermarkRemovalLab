@@ -131,15 +131,25 @@ These commands must remain model-free and offline after dependency synchronizati
 ### Current implementation boundary
 
 The repository currently contains the fixed `lama-onnx-fp32` descriptor, atomic model store,
-mutually exclusive CPU/CUDA runtime extras, and a lazy session owner. Offline tests prove that
-model integrity is checked before importing the optional runtime, CPU and CUDA provider policies
-share one tensor contract, unavailable CUDA never silently falls back to CPU, graph metadata is
-validated, and one owner retains at most one session.
+mutually exclusive CPU/CUDA runtime extras, a lazy session owner, and the model-independent LaMa
+crop/inference core. Offline tests prove that model integrity is checked before importing the
+optional runtime, CPU and CUDA provider policies share one tensor contract, unavailable CUDA
+never silently falls back to CPU, graph metadata is validated, and one owner retains at most one
+session.
 
-The `wrl model` commands, real inference call, crop transform, image pipeline integration, and
-real-model pytest markers remain later M2 slices. Until those slices form the minimum inference
-loop, do not start real-model acceptance on AutoDL and do not treat the command examples below as
-available. Another contributor can review the implemented slices with:
+The local inference core now plans a padded square crop from the final mask, prepares immutable
+`float32` NCHW image and mask tensors, calls an injected `session.run`, validates the fixed output,
+inverts the crop transform, and replaces only original-resolution final-mask pixels. RGB context
+uses reflection padding, with edge replication for a one-pixel axis; mask context outside the
+image is always false. RGB downscaling uses area interpolation, RGB upscaling uses cubic
+interpolation, and masks use nearest-neighbor interpolation. Output conversion clips to
+`[0, 255]` and uses round-half-up. Default tests exercise this loop with fake sessions and do not
+install ONNX Runtime or read a model file.
+
+The `wrl model` commands, application/CLI integration, execution through a real ONNX Runtime
+session, and real-model pytest markers remain later M2 slices. Until those slices form the minimum
+user-facing inference loop, do not start real-model acceptance on AutoDL and do not treat the
+command examples below as available. Another contributor can review the implemented slices with:
 
 ```bash
 uv run ruff format --check .

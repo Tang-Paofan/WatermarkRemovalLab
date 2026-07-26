@@ -110,9 +110,11 @@ uv build --no-sources
 
 ### 当前实现边界
 
-仓库当前已包含固定的 `lama-onnx-fp32` 描述符、原子模型存储、互斥的 CPU/CUDA 运行时 extra 和惰性 Session owner。离线测试证明：可选运行时只会在模型完整性校验通过后导入；CPU 与 CUDA 共用同一张量契约；CUDA 不可用时绝不静默回退 CPU；图元数据会被校验；每个 owner 最多保留一个 Session。
+仓库当前已包含固定的 `lama-onnx-fp32` 描述符、原子模型存储、互斥的 CPU/CUDA 运行时 extra、惰性 Session owner，以及与具体模型运行时无关的 LaMa 裁剪/推理核心。离线测试证明：可选运行时只会在模型完整性校验通过后导入；CPU 与 CUDA 共用同一张量契约；CUDA 不可用时绝不静默回退 CPU；图元数据会被校验；每个 owner 最多保留一个 Session。
 
-`wrl model` 命令、真实推理调用、裁剪变换、图片流水线接入和真实模型 pytest marker 仍属于后续 M2 切片。只有这些切片形成最小推理闭环后，才开始 AutoDL 真实模型验收；当前不能把下方命令示例视为已经可用。其他贡献者可以使用以下命令复核已实现切片：
+本地推理核心现在可以从最终掩膜规划带 padding 的正方形 crop，准备不可变的 `float32` NCHW 图片与掩膜张量，调用注入的 `session.run`，校验固定输出，逆转 crop 变换，并且只替换原始分辨率最终掩膜内的像素。图片上下文使用反射 padding；只有一个像素的退化轴改用边缘复制；图片外的掩膜上下文始终为 false。RGB 缩小使用面积插值，放大使用三次插值，掩膜使用最近邻插值。输出先裁剪到 `[0, 255]`，再按 round-half-up 舍入。默认测试通过假 Session 覆盖整个闭环，不安装 ONNX Runtime，也不读取模型文件。
+
+`wrl model` 命令、应用/CLI 接入、通过真实 ONNX Runtime Session 执行以及真实模型 pytest marker 仍属于后续 M2 切片。只有这些切片形成用户可运行的最小推理闭环后，才开始 AutoDL 真实模型验收；当前不能把下方命令示例视为已经可用。其他贡献者可以使用以下命令复核已实现切片：
 
 ```bash
 uv run ruff format --check .

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import importlib
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import cast
@@ -113,6 +113,14 @@ class FakeSession:
         if self._provider_error is not None:
             raise self._provider_error
         return self._providers
+
+    def run(
+        self,
+        output_names: Sequence[str],
+        input_feed: Mapping[str, object],
+    ) -> Sequence[object]:
+        del output_names, input_feed
+        raise AssertionError("runtime-boundary tests must not execute inference")
 
 
 class FakeRuntime:

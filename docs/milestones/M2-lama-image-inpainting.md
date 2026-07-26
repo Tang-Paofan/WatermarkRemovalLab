@@ -215,8 +215,14 @@ validates the reviewed input/output metadata, retains at most one session, and d
 when closed. CPU and CUDA use the same graph contract. No runtime is installed by default and all
 default tests use injected fake modules and sessions.
 
-The owner does not yet execute input arrays. Crop transforms, tensor values, `session.run`, output
-validation, application-pipeline integration, and real-model tests remain later slices.
+The third local implementation slice adds the model-independent LaMa inference core. It plans the
+local crop from the original-resolution final mask, prepares immutable input arrays, invokes an
+injected `session.run`, validates and restores its output, and composites only inside the final
+mask. Fake-session tests cover the full loop without importing ONNX Runtime or reading a model
+file.
+
+Application-pipeline and CLI integration, execution through a real ONNX Runtime session, and
+real-model tests remain later slices.
 
 ## 8. Local crop contract
 
@@ -228,10 +234,12 @@ Given the original image and final refined mask:
    must be a non-negative integer.
 4. Convert the expanded region into a square context window centered on the expanded box. The
    side length is the larger expanded dimension.
-5. When the square extends outside the image, synthesize context with reflection padding.
-   Degenerate one-pixel axes use edge replication.
-6. Resize the square isotropically to `512 × 512`. RGB uses a documented high-quality
-   interpolation; masks always use nearest-neighbor interpolation and are re-binarized.
+5. When the square extends outside the image, synthesize RGB context with reflection padding.
+   Degenerate one-pixel RGB axes use edge replication. Mask context outside the image is always
+   false.
+6. Resize the square isotropically to `512 × 512`. RGB downscaling uses area interpolation and RGB
+   upscaling uses cubic interpolation. Masks always use nearest-neighbor interpolation and are
+   re-binarized.
 7. Run inference with batch size one.
 8. Invert the resize and padding transform to produce an original-crop-sized candidate.
 9. Composite the candidate only where the original-resolution final mask is true.
@@ -254,8 +262,8 @@ The loader must validate the exact artifact before inference:
 | Output | `output` | `float32` | `1 × 3 × 512 × 512` | expected `[0, 255]` |
 
 Although the export declares a dynamic batch axis, M2 submits batch size one. Spatial dimensions
-are fixed. Output values are checked for finite values, clipped to `[0, 255]`, rounded through
-one documented conversion, and converted to `uint8`.
+are fixed. Output values are checked for finite values, clipped to `[0, 255]`, rounded with
+round-half-up (`floor(value + 0.5)` after clipping), and converted to `uint8`.
 
 Any name, type, rank, or spatial-shape mismatch fails with `model_contract_mismatch` before
 processing user media.

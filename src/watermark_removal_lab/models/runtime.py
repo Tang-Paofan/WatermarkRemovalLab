@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import importlib
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
@@ -76,6 +76,13 @@ class OnnxSession(Protocol):
 
     def get_providers(self) -> Sequence[str]:
         """Return the providers active for this session in priority order."""
+
+    def run(
+        self,
+        output_names: Sequence[str],
+        input_feed: Mapping[str, object],
+    ) -> Sequence[object]:
+        """Run inference for named outputs and input tensors."""
 
 
 class OnnxRuntimeModule(Protocol):
@@ -161,7 +168,7 @@ class SessionCreationError(ModelRuntimeError):
 
 
 class InsufficientMemoryError(ModelRuntimeError):
-    """Raised when session creation reports host or device memory exhaustion."""
+    """Raised when a runtime operation reports host or device memory exhaustion."""
 
     code = "insufficient_memory"
 
@@ -315,7 +322,9 @@ def validate_lama_session_contract(session: OnnxSession) -> None:
     _validate_tensor_group(outputs, LAMA_OUTPUT_CONTRACTS, group_name="output")
 
 
-def _is_out_of_memory_error(error: BaseException) -> bool:
+def is_out_of_memory_error(error: BaseException) -> bool:
+    """Return whether a backend exception reports host or device memory exhaustion."""
+
     if isinstance(error, MemoryError):
         return True
     normalized_message = str(error).lower().replace("_", "")
@@ -353,7 +362,7 @@ def _create_session(
             providers=provider_configuration,
         )
     except Exception as exc:
-        if _is_out_of_memory_error(exc):
+        if is_out_of_memory_error(exc):
             raise InsufficientMemoryError(
                 "ONNX Runtime could not allocate memory while creating the model session."
             ) from exc

@@ -24,6 +24,7 @@ from watermark_removal_lab.models.runtime import (
     SessionCreationError,
     SessionOwnerClosedError,
     TensorContract,
+    is_out_of_memory_error,
     load_onnx_runtime,
     validate_lama_session_contract,
 )
@@ -77,6 +78,7 @@ __all__ = [
     "artifact_path",
     "inspect_model_artifact",
     "install_model_artifact",
+    "is_out_of_memory_error",
     "load_onnx_runtime",
     "resolve_model_cache_root",
     "validate_lama_session_contract",
