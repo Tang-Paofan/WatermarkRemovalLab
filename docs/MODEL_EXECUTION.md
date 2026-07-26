@@ -146,10 +146,16 @@ interpolation, and masks use nearest-neighbor interpolation. Output conversion c
 `[0, 255]` and uses round-half-up. Default tests exercise this loop with fake sessions and do not
 install ONNX Runtime or read a model file.
 
-The `wrl model` commands, application/CLI integration, execution through a real ONNX Runtime
-session, and real-model pytest markers remain later M2 slices. Until those slices form the minimum
-user-facing inference loop, do not start real-model acceptance on AutoDL and do not treat the
-command examples below as available. Another contributor can review the implemented slices with:
+The explicit `wrl model install/status` commands and the single-image `--method lama` path are now
+available. Both go through public application services. A non-empty LaMa request owns one lazy
+session, records runtime/provider and crop evidence, closes the owner before returning, and never
+downloads a missing model. B1 batches remain OpenCV-only until the B2 identity, resume, and
+provider-scheduling contract is implemented.
+
+The real artifact has not yet completed the separately marked CPU/CUDA acceptance suite. The next
+M2 slice can therefore run a pinned CPU smoke test and then capture AutoDL provider evidence; it
+must not claim real-model acceptance before those results exist. Another contributor can review
+the implemented local slices with:
 
 ```bash
 uv run ruff format --check .

@@ -114,7 +114,9 @@ uv build --no-sources
 
 本地推理核心现在可以从最终掩膜规划带 padding 的正方形 crop，准备不可变的 `float32` NCHW 图片与掩膜张量，调用注入的 `session.run`，校验固定输出，逆转 crop 变换，并且只替换原始分辨率最终掩膜内的像素。图片上下文使用反射 padding；只有一个像素的退化轴改用边缘复制；图片外的掩膜上下文始终为 false。RGB 缩小使用面积插值，放大使用三次插值，掩膜使用最近邻插值。输出先裁剪到 `[0, 255]`，再按 round-half-up 舍入。默认测试通过假 Session 覆盖整个闭环，不安装 ONNX Runtime，也不读取模型文件。
 
-`wrl model` 命令、应用/CLI 接入、通过真实 ONNX Runtime Session 执行以及真实模型 pytest marker 仍属于后续 M2 切片。只有这些切片形成用户可运行的最小推理闭环后，才开始 AutoDL 真实模型验收；当前不能把下方命令示例视为已经可用。其他贡献者可以使用以下命令复核已实现切片：
+显式的 `wrl model install/status` 命令与单图 `--method lama` 路径现在已经可用，两者都经过公开应用服务。非空 LaMa 请求拥有一个惰性 Session，在结果中记录运行时/provider 与 crop 证据，并在返回前关闭 owner；处理过程绝不会自动下载缺失模型。在 B2 身份、恢复与 provider 调度契约完成前，B1 批次继续只支持 OpenCV。
+
+真实产物尚未完成独立标记的 CPU/CUDA 验收套件。因此下一个 M2 切片可以运行固定产物 CPU 冒烟，再采集 AutoDL provider 证据；在得到这些结果前不得宣称真实模型已经验收。其他贡献者可以使用以下命令复核已实现的本地切片：
 
 ```bash
 uv run ruff format --check .

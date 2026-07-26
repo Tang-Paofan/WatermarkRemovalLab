@@ -92,7 +92,7 @@ def _service_result(
         output_path=request.output_path,
         status=status,
         method=request.method,
-        radius=float(request.radius),
+        radius=float(cast(float, request.radius)),
         dilation_radius=request.dilation_radius,
         mask_threshold=None,
         width=8 if status is ImageRemovalStatus.SUCCEEDED else None,

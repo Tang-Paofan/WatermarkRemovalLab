@@ -1,6 +1,6 @@
 """Integration tests for the single-image removal application service."""
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import replace
 from pathlib import Path
 from typing import cast
@@ -18,6 +18,8 @@ from watermark_removal_lab.application import (
     ImageRemovalProcessingError,
     ImageRemovalRequest,
     ImageRemovalStatus,
+    LamaInpaintMethod,
+    LamaSessionOwner,
     MaskFileSource,
     OverwritePolicy,
     build_failed_image_removal_result,
@@ -26,6 +28,13 @@ from watermark_removal_lab.application import (
 from watermark_removal_lab.common import Box, DataContractError, ImageData, UInt8Array
 from watermark_removal_lab.image import OpenCVInpaintError, OpenCVInpaintMethod, read_image
 from watermark_removal_lab.image.output import ImageWriteError
+from watermark_removal_lab.models import (
+    LAMA_ONNX_FP32,
+    ModelNotInstalledError,
+    OnnxSession,
+    RuntimeDiagnostics,
+    RuntimeProvider,
+)
 
 
 def _save_rgb(path: Path, pixels: UInt8Array) -> None:
@@ -45,6 +54,41 @@ def _base_request(tmp_path: Path) -> ImageRemovalRequest:
         output_path=tmp_path / "output.png",
         mask_source=BoxMaskSource(Box.from_xywh(x=2, y=2, width=1, height=1)),
     )
+
+
+class FakeLamaSession:
+    """Minimal inference session returning a constant model-space image."""
+
+    def run(
+        self,
+        output_names: Sequence[str],
+        input_feed: Mapping[str, object],
+    ) -> Sequence[object]:
+        assert tuple(output_names) == ("output",)
+        assert set(input_feed) == {"image", "mask"}
+        return (np.full((1, 3, 512, 512), 200.0, dtype=np.float32),)
+
+
+class FakeLamaOwner:
+    """Application-owned fake with observable close behavior."""
+
+    def __init__(
+        self,
+        diagnostics: RuntimeDiagnostics | None,
+        *,
+        error: ModelNotInstalledError | None = None,
+    ) -> None:
+        self.diagnostics = diagnostics
+        self.error = error
+        self.closed = False
+
+    def get_session(self) -> OnnxSession:
+        if self.error is not None:
+            raise self.error
+        return cast(OnnxSession, FakeLamaSession())
+
+    def close(self) -> None:
+        self.closed = True
 
 
 def test_remove_image_box_pipeline_preserves_png_exterior_and_alpha(tmp_path: Path) -> None:
@@ -482,3 +526,278 @@ def test_build_failed_image_removal_result_is_json_compatible(tmp_path: Path) ->
     assert payload["error_code"] == "simulated"
     assert payload["error_message"] == "simulated failure"
     assert payload["duration_ms"] == 12.5
+
+
+def _runtime_diagnostics(provider: RuntimeProvider) -> RuntimeDiagnostics:
+    execution_provider = provider.execution_provider
+    return RuntimeDiagnostics(
+        model_id=LAMA_ONNX_FP32.model_id,
+        model_sha256=LAMA_ONNX_FP32.sha256,
+        runtime_version="fake-1.0",
+        requested_provider=provider,
+        available_providers=(execution_provider, "CPUExecutionProvider"),
+        session_providers=(execution_provider, "CPUExecutionProvider"),
+    )
+
+
+def test_remove_image_lama_uses_owned_session_and_reports_transform(
+    tmp_path: Path,
+) -> None:
+    input_path = tmp_path / "input.png"
+    output_path = tmp_path / "output.png"
+    cache_root = tmp_path / "models"
+    rgb = np.arange(48, dtype=np.uint8).reshape(4, 4, 3)
+    alpha = np.arange(16, dtype=np.uint8).reshape(4, 4)
+    _save_rgba(input_path, rgb, alpha)
+    owner = FakeLamaOwner(_runtime_diagnostics(RuntimeProvider.CUDA))
+    observed_factory: list[tuple[Path | None, RuntimeProvider]] = []
+
+    def owner_factory(
+        selected_cache_root: Path | None,
+        provider: RuntimeProvider,
+    ) -> LamaSessionOwner:
+        observed_factory.append((selected_cache_root, provider))
+        return owner
+
+    result = remove_image(
+        ImageRemovalRequest(
+            input_path=input_path,
+            output_path=output_path,
+            mask_source=BoxMaskSource(Box.from_xywh(x=1, y=2, width=1, height=1)),
+            method=LamaInpaintMethod.LAMA,
+            radius=None,
+            provider=RuntimeProvider.CUDA,
+            crop_padding=0,
+            model_cache_root=cache_root,
+        ),
+        lama_session_owner_factory=owner_factory,
+    )
+
+    decoded = read_image(output_path)
+    selected = np.zeros((4, 4), dtype=np.bool_)
+    selected[2, 1] = True
+    assert np.array_equal(decoded.rgb[~selected], rgb[~selected])
+    assert np.array_equal(decoded.rgb[selected], np.full((1, 3), 200, dtype=np.uint8))
+    assert decoded.alpha is not None
+    assert np.array_equal(decoded.alpha, alpha)
+    assert owner.closed
+    assert observed_factory == [(cache_root, RuntimeProvider.CUDA)]
+    assert result.radius is None
+    assert result.crop_plan is not None
+    payload = result.to_dict()
+    assert payload["options"] == {
+        "radius": None,
+        "dilate": 0,
+        "mask_threshold": None,
+        "crop_padding": 0,
+    }
+    assert payload["backend"] == {
+        "id": LAMA_ONNX_FP32.model_id,
+        "model_sha256": LAMA_ONNX_FP32.sha256,
+        "runtime_version": "fake-1.0",
+        "requested_provider": "cuda",
+        "available_providers": ["CUDAExecutionProvider", "CPUExecutionProvider"],
+        "effective_providers": ["CUDAExecutionProvider", "CPUExecutionProvider"],
+    }
+    assert payload["crop_transform"] == {
+        "source_box": [1, 2, 2, 3],
+        "square_window": [1, 2, 2, 3],
+        "padding": {"top": 0, "bottom": 0, "left": 0, "right": 0},
+        "context_side": 1,
+        "scale": 512.0,
+    }
+
+
+def test_remove_image_lama_empty_mask_bypasses_owner_with_defaults(tmp_path: Path) -> None:
+    input_path = tmp_path / "input.png"
+    mask_path = tmp_path / "mask.png"
+    output_path = tmp_path / "output.png"
+    rgb = np.arange(27, dtype=np.uint8).reshape(3, 3, 3)
+    _save_rgb(input_path, rgb)
+    Image.fromarray(np.zeros((3, 3), dtype=np.uint8), mode="L").save(mask_path)
+
+    def unexpected_factory(
+        cache_root: Path | None,
+        provider: RuntimeProvider,
+    ) -> LamaSessionOwner:
+        del cache_root, provider
+        raise AssertionError("empty LaMa masks must not initialize a model session")
+
+    result = remove_image(
+        ImageRemovalRequest(
+            input_path=input_path,
+            output_path=output_path,
+            mask_source=MaskFileSource(mask_path),
+            method=LamaInpaintMethod.LAMA,
+            radius=None,
+        ),
+        lama_session_owner_factory=unexpected_factory,
+    )
+
+    assert np.array_equal(read_image(output_path).rgb, rgb)
+    assert result.warnings == ("empty_mask",)
+    assert result.crop_padding == 64
+    assert result.to_dict()["backend"] == {
+        "id": LAMA_ONNX_FP32.model_id,
+        "model_sha256": LAMA_ONNX_FP32.sha256,
+        "runtime_version": None,
+        "requested_provider": "cpu",
+        "available_providers": [],
+        "effective_providers": [],
+    }
+    assert result.to_dict()["crop_transform"] is None
+
+
+def test_remove_image_lama_skip_records_backend_without_loading(tmp_path: Path) -> None:
+    request = replace(
+        _base_request(tmp_path),
+        method=LamaInpaintMethod.LAMA,
+        radius=None,
+        crop_padding=32,
+        overwrite=OverwritePolicy.SKIP,
+    )
+    request.output_path.write_bytes(b"existing")
+
+    result = remove_image(request)
+
+    assert result.status is ImageRemovalStatus.SKIPPED
+    assert result.backend_id == LAMA_ONNX_FP32.model_id
+    assert result.model_sha256 == LAMA_ONNX_FP32.sha256
+    assert result.crop_padding == 32
+
+
+@pytest.mark.parametrize(
+    "request_transform",
+    [
+        lambda request, tmp_path: replace(request, provider=RuntimeProvider.CPU),
+        lambda request, tmp_path: replace(request, crop_padding=1),
+        lambda request, tmp_path: replace(request, model_cache_root=tmp_path),
+    ],
+)
+def test_remove_image_rejects_lama_options_for_opencv(
+    tmp_path: Path,
+    request_transform: Callable[[ImageRemovalRequest, Path], ImageRemovalRequest],
+) -> None:
+    with pytest.raises(ImageRemovalInputError) as captured:
+        remove_image(request_transform(_base_request(tmp_path), tmp_path))
+
+    assert captured.value.code == "invalid_inpaint_options"
+
+
+@pytest.mark.parametrize(
+    "request_transform",
+    [
+        lambda request: replace(request, radius=3.0),
+        lambda request: replace(request, provider=cast(RuntimeProvider, "cuda")),
+        lambda request: replace(request, crop_padding=cast(int, True)),
+        lambda request: replace(request, crop_padding=-1),
+    ],
+)
+def test_remove_image_rejects_invalid_lama_options(
+    tmp_path: Path,
+    request_transform: Callable[[ImageRemovalRequest], ImageRemovalRequest],
+) -> None:
+    request = replace(
+        _base_request(tmp_path),
+        method=LamaInpaintMethod.LAMA,
+        radius=None,
+    )
+
+    with pytest.raises(ImageRemovalInputError) as captured:
+        remove_image(request_transform(request))
+
+    assert captured.value.code == "invalid_inpaint_options"
+
+
+def test_remove_image_rejects_invalid_model_cache_path_type(tmp_path: Path) -> None:
+    request = replace(
+        _base_request(tmp_path),
+        method=LamaInpaintMethod.LAMA,
+        radius=None,
+        model_cache_root=cast(Path, "models"),
+    )
+
+    with pytest.raises(ImageRemovalInputError) as captured:
+        remove_image(request)
+
+    assert captured.value.code == "invalid_path"
+
+
+def test_remove_image_lama_translates_runtime_failure_and_closes_owner(
+    tmp_path: Path,
+) -> None:
+    backend_error = ModelNotInstalledError("model is missing")
+    owner = FakeLamaOwner(None, error=backend_error)
+    request = replace(
+        _base_request(tmp_path),
+        method=LamaInpaintMethod.LAMA,
+        radius=None,
+    )
+
+    with pytest.raises(ImageRemovalProcessingError) as captured:
+        remove_image(request, lama_session_owner_factory=lambda cache, provider: owner)
+
+    assert captured.value.code == "model_not_installed"
+    assert captured.value.__cause__ is backend_error
+    assert owner.closed
+
+
+def test_remove_image_lama_requires_session_diagnostics(tmp_path: Path) -> None:
+    owner = FakeLamaOwner(None)
+    request = replace(
+        _base_request(tmp_path),
+        method=LamaInpaintMethod.LAMA,
+        radius=None,
+    )
+
+    with pytest.raises(ImageRemovalProcessingError) as captured:
+        remove_image(request, lama_session_owner_factory=lambda cache, provider: owner)
+
+    assert captured.value.code == "session_creation_failed"
+    assert owner.closed
+
+
+def test_default_lama_owner_factory_delegates_to_runtime_owner(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    sentinel = cast(LamaSessionOwner, object())
+    observed: list[tuple[Path | None, RuntimeProvider]] = []
+
+    def fake_owner(
+        cache_root: Path | None,
+        *,
+        provider: RuntimeProvider,
+    ) -> LamaSessionOwner:
+        observed.append((cache_root, provider))
+        return sentinel
+
+    monkeypatch.setattr(image_removal_module, "LamaOnnxSessionOwner", fake_owner)
+
+    result = image_removal_module._create_lama_session_owner(tmp_path, RuntimeProvider.CPU)
+
+    assert result is sentinel
+    assert observed == [(tmp_path, RuntimeProvider.CPU)]
+
+
+def test_build_failed_lama_result_records_backend_identity(tmp_path: Path) -> None:
+    request = replace(
+        _base_request(tmp_path),
+        method=LamaInpaintMethod.LAMA,
+        radius=None,
+        provider=RuntimeProvider.CUDA,
+        crop_padding=16,
+    )
+
+    result = build_failed_image_removal_result(
+        request,
+        ImageRemovalProcessingError("failed", code="inference_failed"),
+        duration_ms=1.0,
+    )
+
+    assert result.radius is None
+    assert result.backend_id == LAMA_ONNX_FP32.model_id
+    assert result.model_sha256 == LAMA_ONNX_FP32.sha256
+    assert result.requested_provider is RuntimeProvider.CUDA
+    options = cast(dict[str, object], result.to_dict()["options"])
+    assert options["crop_padding"] == 16

@@ -176,9 +176,10 @@ The first local implementation slice provides exactly one descriptor,
   checks and is atomically published;
 - the downloader is injectable so default tests remain offline.
 
-This slice does not yet expose the CLI commands above, install ONNX Runtime, create a model
-session, or connect LaMa to the image pipeline. Real-model AutoDL acceptance begins only after
-those later slices form a minimum inference loop.
+The fifth local implementation slice exposes these commands through a model-management
+application service. `status` remains read-only, while `install` displays the reviewed notice,
+requires explicit acceptance, and delegates to the atomic verified store. Processing commands
+still never download a model.
 
 ## 7. Runtime dependencies and providers
 
@@ -221,8 +222,13 @@ injected `session.run`, validates and restores its output, and composites only i
 mask. Fake-session tests cover the full loop without importing ONNX Runtime or reading a model
 file.
 
-Application-pipeline and CLI integration, execution through a real ONNX Runtime session, and
-real-model tests remain later slices.
+The fifth local implementation slice connects this core to the public single-image service. The
+service owns one lazy session owner for a non-empty LaMa request, closes it before returning, and
+records runtime diagnostics and the crop plan in its result. The CLI only constructs the request
+and invokes that service; it does not create a runtime session.
+
+Execution code for a verified real artifact is now present. The optional pinned-artifact tests,
+AutoDL CPU/CUDA evidence, and quality/resource benchmarks remain later slices.
 
 ## 8. Local crop contract
 
@@ -294,6 +300,11 @@ Rules:
 
 The CLI continues to call the public single-image service. It never creates an ONNX Runtime
 session directly.
+
+The fifth local implementation slice provides these options and rejects explicit backend
+mismatches. An empty final mask remains a successful no-op and does not initialize a model
+session. B1 directory and manifest batches continue to accept only OpenCV methods until the B2
+fingerprint, resume, and scheduling contract is implemented.
 
 ## 11. Stable error contract
 

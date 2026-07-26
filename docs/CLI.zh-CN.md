@@ -15,6 +15,26 @@ uv run wrl --help
 
 以下示例使用合成文件名。执行命令前请先创建输出目录。
 
+## 安装已审查的 LaMa 模型
+
+LaMa 是可选的实验性单图后端。先按照[开发指南](DEVELOPMENT.zh-CN.md)安装且只安装一个
+ONNX Runtime extra，再显式安装固定模型产物：
+
+```powershell
+uv run wrl model install lama-onnx-fp32 `
+    --accept-model-terms `
+    --cache-dir C:\wrl-models
+
+uv run wrl model status lama-onnx-fp32 `
+    --cache-dir C:\wrl-models `
+    --json
+```
+
+安装命令会在下载前展示固定来源、模型卡声明的许可证、Places 数据集限制提示、预期字节数
+和 SHA-256。只有两项完整性校验都通过后才会发布文件。图片处理绝不会自动下载缺失模型。
+仓库不捆绑该产物；当前项目审查只批准不捆绑、非商业研究集成，详见
+[MODEL_LICENSES.md](../MODEL_LICENSES.md)。
+
 ## 从单张图片移除覆盖物
 
 使用格式为 `X,Y,WIDTH,HEIGHT` 的半开区间边界框：
@@ -35,8 +55,23 @@ uv run wrl image remove input.png output.png `
     --save-mask final-mask.png
 ```
 
-强度严格大于阈值的掩膜像素会被选中。`--method` 可选 `telea` 或 `ns`。使用 `--json`
-可以获得一条机器可读的单图结果。
+强度严格大于阈值的掩膜像素会被选中。`--method` 可选 `telea`、`ns` 或 `lama`；
+`--radius` 只适用于 OpenCV。
+
+使用显式本地缓存和 provider 运行已审查的 LaMa 产物：
+
+```powershell
+uv run wrl image remove input.png output.png `
+    --mask mask.png `
+    --method lama `
+    --provider cpu `
+    --crop-padding 64 `
+    --model-dir C:\wrl-models
+```
+
+`--provider`、`--crop-padding` 和 `--model-dir` 只适用于 LaMa。传入与后端不兼容的选项会
+直接失败，不会被静默忽略。使用 `--json` 可以获得包含后端身份、模型 SHA-256、provider
+诊断、警告与 crop 变换的单图机器可读结果。
 
 ## 批量处理图片目录
 
@@ -58,6 +93,9 @@ uv run wrl batch image `
 
 不使用 `--recursive` 时，只扫描输入目录的直属文件。支持的图片按确定性的相对路径顺序
 处理。`--output-format png` 把所有输出扩展名改为 `.png`；`preserve` 保留输入扩展名。
+
+B1 目录批次和 Manifest 批次仍只接受 `telea` 与 `ns`。LaMa 批量执行、provider 感知调度
+与恢复属于 B2，不会因为单图命令接入而提前开放。
 
 如需使用掩膜，请用 `--mask-dir` 替换 `--box`：
 
@@ -134,6 +172,8 @@ OUTPUT_DIR/
 
 - 定位方式为手动提供边界框或掩膜。
 - Telea 和 Navier-Stokes 是无模型基线，在纹理、结构或语义复杂背景上可能产生明显伪影。
+- LaMa 使用固定的 512 × 512 局部 crop；较大掩膜会被缩小，可能损失细节。
+- LaMa 需要固定模型产物和一个兼容的可选 ONNX Runtime 包；provider 请求绝不静默回退。
 - 批量执行固定使用一个 worker。
 - 不支持批次恢复和自动重试。
 - PNG 可以保留受支持的 Alpha 数据；JPEG 输出有损且不能保留 Alpha。

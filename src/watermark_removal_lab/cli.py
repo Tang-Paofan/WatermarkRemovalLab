@@ -28,17 +28,25 @@ from watermark_removal_lab.application import (
     ImageRemovalOutputError,
     ImageRemovalProcessingError,
     ImageRemovalRequest,
+    LamaInpaintMethod,
     ManifestBatchRequest,
     MaskFileSource,
+    ModelManagementError,
+    ModelManagementResult,
     OverwritePolicy,
+    ReviewedModelNotice,
     build_failed_image_removal_result,
+    inspect_reviewed_model,
+    install_reviewed_model,
     plan_directory_batch,
     plan_manifest_batch,
     remove_image,
+    reviewed_model_notice,
     run_batch,
 )
 from watermark_removal_lab.common import Box, DataContractError
 from watermark_removal_lab.image import OpenCVInpaintMethod
+from watermark_removal_lab.models import LAMA_ONNX_FP32, RuntimeProvider
 
 
 def _parse_box(value: str) -> Box:
@@ -79,6 +87,16 @@ def _parse_mask_threshold(value: str) -> int:
     return parsed
 
 
+def _parse_image_inpaint_method(value: str) -> OpenCVInpaintMethod | LamaInpaintMethod:
+    try:
+        return OpenCVInpaintMethod(value)
+    except ValueError:
+        try:
+            return LamaInpaintMethod(value)
+        except ValueError as error:
+            raise argparse.ArgumentTypeError("method must be telea, ns, or lama") from error
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="wrl",
@@ -86,7 +104,7 @@ def _build_parser() -> argparse.ArgumentParser:
             "Remove a user-selected visible overlay from media you own or are authorized to edit."
         ),
         epilog=(
-            "M1 requires a user-provided box or mask. JPEG output is lossy; "
+            "A user-provided box or mask is required. JPEG output is lossy; "
             "automatic detection is not included."
         ),
     )
@@ -113,16 +131,35 @@ def _build_parser() -> argparse.ArgumentParser:
     selection.add_argument("--mask", type=Path, help="External mask PNG or JPEG path")
     remove_parser.add_argument(
         "--method",
-        choices=tuple(OpenCVInpaintMethod),
-        type=OpenCVInpaintMethod,
+        choices=(*tuple(OpenCVInpaintMethod), *tuple(LamaInpaintMethod)),
+        type=_parse_image_inpaint_method,
         default=OpenCVInpaintMethod.TELEA,
-        help="OpenCV inpainting algorithm",
+        help="Inpainting backend",
     )
     remove_parser.add_argument(
         "--radius",
         type=_parse_positive_float,
-        default=3.0,
-        help="Inpainting radius in pixels",
+        default=argparse.SUPPRESS,
+        help="OpenCV-only inpainting radius in pixels; defaults to 3.0",
+    )
+    remove_parser.add_argument(
+        "--provider",
+        choices=tuple(RuntimeProvider),
+        type=RuntimeProvider,
+        default=argparse.SUPPRESS,
+        help="LaMa-only runtime provider; defaults to cpu",
+    )
+    remove_parser.add_argument(
+        "--crop-padding",
+        type=_parse_non_negative_int,
+        default=argparse.SUPPRESS,
+        help="LaMa-only crop padding in pixels; defaults to 64",
+    )
+    remove_parser.add_argument(
+        "--model-dir",
+        type=Path,
+        default=argparse.SUPPRESS,
+        help="LaMa model cache root",
     )
     remove_parser.add_argument(
         "--dilate",
@@ -149,6 +186,58 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Existing-output policy",
     )
     remove_parser.add_argument(
+        "--json",
+        action="store_true",
+        dest="json_output",
+        help="Write one machine-readable result object",
+    )
+    model_parser = command_parsers.add_parser(
+        "model",
+        help="Manage reviewed model artifacts",
+    )
+    model_commands = model_parser.add_subparsers(dest="model_command", required=True)
+    install_parser = model_commands.add_parser(
+        "install",
+        help="Explicitly download and verify a reviewed model",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    install_parser.add_argument(
+        "model_id",
+        choices=(LAMA_ONNX_FP32.model_id,),
+        help="Reviewed model ID",
+    )
+    install_parser.add_argument(
+        "--accept-model-terms",
+        action="store_true",
+        help="Accept the displayed model and dataset terms",
+    )
+    install_parser.add_argument(
+        "--cache-dir",
+        type=Path,
+        help="Model cache root",
+    )
+    install_parser.add_argument(
+        "--json",
+        action="store_true",
+        dest="json_output",
+        help="Write one machine-readable result object",
+    )
+    status_parser = model_commands.add_parser(
+        "status",
+        help="Inspect a reviewed model without downloading",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    status_parser.add_argument(
+        "model_id",
+        choices=(LAMA_ONNX_FP32.model_id,),
+        help="Reviewed model ID",
+    )
+    status_parser.add_argument(
+        "--cache-dir",
+        type=Path,
+        help="Model cache root",
+    )
+    status_parser.add_argument(
         "--json",
         action="store_true",
         dest="json_output",
@@ -281,15 +370,23 @@ def _request_from_args(args: argparse.Namespace) -> ImageRemovalRequest:
         if box is not None
         else MaskFileSource(cast(Path, mask_path), threshold=cast(int, args.mask_threshold))
     )
+    method = cast(OpenCVInpaintMethod | LamaInpaintMethod, args.method)
+    explicit_radius = cast(float | None, getattr(args, "radius", None))
+    radius = (
+        explicit_radius if explicit_radius is not None or method is LamaInpaintMethod.LAMA else 3.0
+    )
     return ImageRemovalRequest(
         input_path=cast(Path, args.input),
         output_path=cast(Path, args.output),
         mask_source=mask_source,
-        method=cast(OpenCVInpaintMethod, args.method),
-        radius=cast(float, args.radius),
+        method=method,
+        radius=radius,
         dilation_radius=cast(int, args.dilate),
         save_mask_path=cast(Path | None, args.save_mask),
         overwrite=cast(OverwritePolicy, args.overwrite),
+        provider=cast(RuntimeProvider | None, getattr(args, "provider", None)),
+        crop_padding=cast(int | None, getattr(args, "crop_padding", None)),
+        model_cache_root=cast(Path | None, getattr(args, "model_dir", None)),
     )
 
 
@@ -318,6 +415,67 @@ def _exit_code(error: ImageRemovalError) -> int:
     if isinstance(error, ImageRemovalOutputError):
         return 4
     return 4
+
+
+def _emit_model_notice(notice: ReviewedModelNotice) -> None:
+    print(f"model: {notice.model_id}", file=sys.stderr)
+    print(f"source: {notice.source_url}", file=sys.stderr)
+    print(f"declared license: {notice.declared_license}", file=sys.stderr)
+    print(f"dataset notice: {notice.dataset_notice}", file=sys.stderr)
+    print(f"dataset terms: {notice.dataset_terms_url}", file=sys.stderr)
+    print(f"expected size: {notice.size_bytes}", file=sys.stderr)
+    print(f"expected SHA-256: {notice.sha256}", file=sys.stderr)
+
+
+def _emit_model_result(result: ModelManagementResult, *, json_output: bool) -> None:
+    payload = result.to_dict()
+    if json_output:
+        print(json.dumps(payload, ensure_ascii=False, separators=(",", ":")))
+        return
+    print(f"model: {result.notice.model_id}")
+    print(f"status: {result.status}")
+    print(f"path: {result.path}")
+    print(f"size: {result.size_bytes}")
+    print(f"SHA-256: {result.sha256}")
+
+
+def _emit_model_error(error: ModelManagementError, *, json_output: bool) -> None:
+    if json_output:
+        print(
+            json.dumps(
+                {
+                    "status": "failed",
+                    "error_code": error.code,
+                    "error_message": str(error),
+                },
+                ensure_ascii=False,
+                separators=(",", ":"),
+            )
+        )
+        return
+    print(f"failed: {error}", file=sys.stderr)
+
+
+def _run_model_command(args: argparse.Namespace) -> int:
+    model_id = cast(str, args.model_id)
+    cache_root = cast(Path | None, args.cache_dir)
+    json_output = cast(bool, args.json_output)
+    try:
+        if args.model_command == "install":
+            notice = reviewed_model_notice(model_id)
+            _emit_model_notice(notice)
+            result = install_reviewed_model(
+                model_id,
+                cache_root=cache_root,
+                terms_accepted=cast(bool, args.accept_model_terms),
+            )
+        else:
+            result = inspect_reviewed_model(model_id, cache_root=cache_root)
+    except ModelManagementError as error:
+        _emit_model_error(error, json_output=json_output)
+        return 2 if error.code in {"unknown_model", "model_terms_not_accepted"} else 3
+    _emit_model_result(result, json_output=json_output)
+    return 0
 
 
 def _failure_policy(args: argparse.Namespace) -> BatchFailurePolicy:
@@ -454,4 +612,6 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parser.parse_args(argv)
     if args.command == "image":
         return _run_single_image_command(args)
+    if args.command == "model":
+        return _run_model_command(args)
     return _run_batch_command(args)

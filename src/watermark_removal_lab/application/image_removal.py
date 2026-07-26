@@ -1,11 +1,12 @@
 """Single-image watermark-removal application service."""
 
 import math
+from collections.abc import Callable
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
 from time import perf_counter
-from typing import TypeAlias
+from typing import Protocol, TypeAlias, cast
 
 from watermark_removal_lab.common import (
     BinaryMask,
@@ -18,11 +19,13 @@ from watermark_removal_lab.common import (
 from watermark_removal_lab.image import (
     SUPPORTED_IMAGE_EXTENSIONS,
     ImageReadError,
+    LamaCropPlan,
     MaskReadError,
     OpenCVInpaintError,
     OpenCVInpaintMethod,
     UnsupportedImageFormatError,
     composite_masked,
+    inpaint_lama,
     inpaint_opencv,
     read_image,
     read_mask_intensity,
@@ -32,6 +35,15 @@ from watermark_removal_lab.image.output import (
     output_is_lossy,
     write_image_atomic,
     write_mask_atomic,
+)
+from watermark_removal_lab.models import (
+    LAMA_ONNX_FP32,
+    LamaOnnxSessionOwner,
+    ModelArtifactError,
+    ModelRuntimeError,
+    OnnxSession,
+    RuntimeDiagnostics,
+    RuntimeProvider,
 )
 
 RESULT_SCHEMA_VERSION = 1
@@ -51,6 +63,42 @@ class ImageRemovalStatus(StrEnum):
     SUCCEEDED = "succeeded"
     SKIPPED = "skipped"
     FAILED = "failed"
+
+
+class LamaInpaintMethod(StrEnum):
+    """Model-based method available to the single-image M2 service."""
+
+    LAMA = "lama"
+
+
+ImageInpaintMethod: TypeAlias = OpenCVInpaintMethod | LamaInpaintMethod
+
+
+class LamaSessionOwner(Protocol):
+    """Application-owned lazy session boundary used by the LaMa service."""
+
+    @property
+    def diagnostics(self) -> RuntimeDiagnostics | None:
+        """Return diagnostics after successful session initialization."""
+
+    def get_session(self) -> OnnxSession:
+        """Return one validated session."""
+
+    def close(self) -> None:
+        """Release the owner's session reference."""
+
+
+LamaSessionOwnerFactory: TypeAlias = Callable[
+    [Path | None, RuntimeProvider],
+    LamaSessionOwner,
+]
+
+
+def _create_lama_session_owner(
+    cache_root: Path | None,
+    provider: RuntimeProvider,
+) -> LamaSessionOwner:
+    return LamaOnnxSessionOwner(cache_root, provider=provider)
 
 
 @dataclass(frozen=True, slots=True)
@@ -73,16 +121,19 @@ ImageMaskSource: TypeAlias = BoxMaskSource | MaskFileSource
 
 @dataclass(frozen=True, slots=True)
 class ImageRemovalRequest:
-    """Framework-neutral request for one M1 image-removal operation."""
+    """Framework-neutral request for one image-removal operation."""
 
     input_path: Path
     output_path: Path
     mask_source: ImageMaskSource
-    method: OpenCVInpaintMethod = OpenCVInpaintMethod.TELEA
-    radius: float = 3.0
+    method: ImageInpaintMethod = OpenCVInpaintMethod.TELEA
+    radius: float | None = 3.0
     dilation_radius: int = 0
     save_mask_path: Path | None = None
     overwrite: OverwritePolicy = OverwritePolicy.ERROR
+    provider: RuntimeProvider | None = None
+    crop_padding: int | None = None
+    model_cache_root: Path | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -92,8 +143,8 @@ class ImageRemovalResult:
     input_path: Path
     output_path: Path
     status: ImageRemovalStatus
-    method: OpenCVInpaintMethod
-    radius: float
+    method: ImageInpaintMethod
+    radius: float | None
     dilation_radius: int
     mask_threshold: int | None
     width: int | None
@@ -104,9 +155,26 @@ class ImageRemovalResult:
     warnings: tuple[str, ...] = ()
     error_code: str | None = None
     error_message: str | None = None
+    backend_id: str | None = None
+    model_sha256: str | None = None
+    crop_padding: int | None = None
+    crop_plan: LamaCropPlan | None = None
+    runtime_diagnostics: RuntimeDiagnostics | None = None
+    requested_provider: RuntimeProvider | None = None
 
     def to_dict(self) -> dict[str, object]:
         """Return the stable JSON-compatible result representation."""
+        diagnostics = self.runtime_diagnostics
+        requested_provider = (
+            self.requested_provider if diagnostics is None else diagnostics.requested_provider
+        )
+        options: dict[str, object] = {
+            "radius": self.radius,
+            "dilate": self.dilation_radius,
+            "mask_threshold": self.mask_threshold,
+        }
+        if self.crop_padding is not None:
+            options["crop_padding"] = self.crop_padding
         return {
             "schema_version": RESULT_SCHEMA_VERSION,
             "item_id": None,
@@ -114,11 +182,22 @@ class ImageRemovalResult:
             "output": str(self.output_path),
             "status": self.status.value,
             "method": self.method.value,
-            "options": {
-                "radius": self.radius,
-                "dilate": self.dilation_radius,
-                "mask_threshold": self.mask_threshold,
+            "options": options,
+            "backend": {
+                "id": self.backend_id or self.method.value,
+                "model_sha256": self.model_sha256,
+                "runtime_version": None if diagnostics is None else diagnostics.runtime_version,
+                "requested_provider": (
+                    None if requested_provider is None else requested_provider.value
+                ),
+                "available_providers": (
+                    [] if diagnostics is None else list(diagnostics.available_providers)
+                ),
+                "effective_providers": (
+                    [] if diagnostics is None else list(diagnostics.session_providers)
+                ),
             },
+            "crop_transform": _crop_plan_to_dict(self.crop_plan),
             "width": self.width,
             "height": self.height,
             "selected_pixels": self.selected_pixels,
@@ -150,6 +229,40 @@ class ImageRemovalOutputError(ImageRemovalError):
     """Raised when input decoding or atomic output publication fails."""
 
 
+@dataclass(frozen=True, slots=True)
+class _NormalizedInpaintOptions:
+    radius: float | None
+    provider: RuntimeProvider | None
+    crop_padding: int | None
+
+
+def _crop_plan_to_dict(plan: LamaCropPlan | None) -> dict[str, object] | None:
+    if plan is None:
+        return None
+    return {
+        "source_box": [
+            plan.source_box.x_min,
+            plan.source_box.y_min,
+            plan.source_box.x_max,
+            plan.source_box.y_max,
+        ],
+        "square_window": [
+            plan.square_window.x_min,
+            plan.square_window.y_min,
+            plan.square_window.x_max,
+            plan.square_window.y_max,
+        ],
+        "padding": {
+            "top": plan.padding.top,
+            "bottom": plan.padding.bottom,
+            "left": plan.padding.left,
+            "right": plan.padding.right,
+        },
+        "context_side": plan.context_side,
+        "scale": plan.scale,
+    }
+
+
 def _same_path(first: Path, second: Path) -> bool:
     return first.resolve() == second.resolve()
 
@@ -175,12 +288,14 @@ def _validate_request(request: ImageRemovalRequest) -> bool:
         request.mask_source.path, Path
     ):
         raise ImageRemovalInputError("mask path must be a pathlib.Path", code="invalid_path")
-    if not isinstance(request.method, OpenCVInpaintMethod):
+    if not isinstance(request.method, (OpenCVInpaintMethod, LamaInpaintMethod)):
         raise ImageRemovalInputError("inpaint method is not supported", code="invalid_method")
     if not isinstance(request.overwrite, OverwritePolicy):
         raise ImageRemovalInputError("overwrite policy is not supported", code="invalid_overwrite")
     if request.save_mask_path is not None and not isinstance(request.save_mask_path, Path):
         raise ImageRemovalInputError("saved-mask path must be a pathlib.Path", code="invalid_path")
+    if request.model_cache_root is not None and not isinstance(request.model_cache_root, Path):
+        raise ImageRemovalInputError("model cache root must be a pathlib.Path", code="invalid_path")
     if request.input_path.suffix.lower() not in SUPPORTED_IMAGE_EXTENSIONS:
         raise ImageRemovalInputError(
             f"unsupported input extension '{request.input_path.suffix or '<none>'}'",
@@ -256,13 +371,13 @@ def _prepare_mask(request: ImageRemovalRequest, *, width: int, height: int) -> B
         raise ImageRemovalInputError(str(error), code="invalid_mask") from error
 
 
-def _normalized_radius(request: ImageRemovalRequest) -> float:
-    if isinstance(request.radius, bool) or not isinstance(request.radius, (int, float)):
+def _normalized_radius(radius_value: object) -> float:
+    if isinstance(radius_value, bool) or not isinstance(radius_value, (int, float)):
         raise ImageRemovalInputError(
             "inpaint radius must be a real number",
             code="invalid_radius",
         )
-    radius = float(request.radius)
+    radius = float(radius_value)
     if not math.isfinite(radius) or radius <= 0:
         raise ImageRemovalInputError(
             "inpaint radius must be finite and positive",
@@ -271,7 +386,52 @@ def _normalized_radius(request: ImageRemovalRequest) -> float:
     return radius
 
 
-def _warnings_for(mask: BinaryMask, *, lossy_output: bool) -> tuple[str, ...]:
+def _normalized_inpaint_options(request: ImageRemovalRequest) -> _NormalizedInpaintOptions:
+    if isinstance(request.method, OpenCVInpaintMethod):
+        if (
+            request.provider is not None
+            or request.crop_padding is not None
+            or request.model_cache_root is not None
+        ):
+            raise ImageRemovalInputError(
+                "provider, crop padding, and model cache options require method 'lama'",
+                code="invalid_inpaint_options",
+            )
+        return _NormalizedInpaintOptions(
+            radius=_normalized_radius(request.radius),
+            provider=None,
+            crop_padding=None,
+        )
+
+    if request.radius is not None:
+        raise ImageRemovalInputError(
+            "inpaint radius is only valid for OpenCV methods",
+            code="invalid_inpaint_options",
+        )
+    if request.provider is not None and not isinstance(request.provider, RuntimeProvider):
+        raise ImageRemovalInputError(
+            "runtime provider is not supported",
+            code="invalid_inpaint_options",
+        )
+    crop_padding = 64 if request.crop_padding is None else request.crop_padding
+    if isinstance(crop_padding, bool) or not isinstance(crop_padding, int) or crop_padding < 0:
+        raise ImageRemovalInputError(
+            "crop padding must be a non-negative integer",
+            code="invalid_inpaint_options",
+        )
+    return _NormalizedInpaintOptions(
+        radius=None,
+        provider=request.provider or RuntimeProvider.CPU,
+        crop_padding=crop_padding,
+    )
+
+
+def _warnings_for(
+    mask: BinaryMask,
+    *,
+    lossy_output: bool,
+    backend_warnings: tuple[str, ...] = (),
+) -> tuple[str, ...]:
     warnings: list[str] = []
     if mask.is_empty:
         warnings.append("empty_mask")
@@ -279,14 +439,18 @@ def _warnings_for(mask: BinaryMask, *, lossy_output: bool) -> tuple[str, ...]:
         warnings.append("full_frame_mask")
     if lossy_output:
         warnings.append("lossy_output")
-    return tuple(warnings)
+    return tuple(dict.fromkeys((*warnings, *backend_warnings)))
 
 
-def remove_image(request: ImageRemovalRequest) -> ImageRemovalResult:
-    """Execute one complete M1 image-removal operation."""
+def remove_image(
+    request: ImageRemovalRequest,
+    *,
+    lama_session_owner_factory: LamaSessionOwnerFactory = _create_lama_session_owner,
+) -> ImageRemovalResult:
+    """Execute one complete single-image removal operation."""
     started = perf_counter()
     lossy_output = _validate_request(request)
-    normalized_radius = _normalized_radius(request)
+    inpaint_options = _normalized_inpaint_options(request)
     destination_paths = (request.output_path, request.save_mask_path)
     if request.overwrite is OverwritePolicy.SKIP and any(
         path is not None and path.exists() for path in destination_paths
@@ -296,7 +460,7 @@ def remove_image(request: ImageRemovalRequest) -> ImageRemovalResult:
             output_path=request.output_path,
             status=ImageRemovalStatus.SKIPPED,
             method=request.method,
-            radius=normalized_radius,
+            radius=inpaint_options.radius,
             dilation_radius=request.dilation_radius,
             mask_threshold=_mask_threshold(request),
             width=None,
@@ -305,6 +469,16 @@ def remove_image(request: ImageRemovalRequest) -> ImageRemovalResult:
             duration_ms=(perf_counter() - started) * 1000,
             lossy_output=lossy_output,
             warnings=("output_exists",),
+            backend_id=(
+                LAMA_ONNX_FP32.model_id
+                if request.method is LamaInpaintMethod.LAMA
+                else request.method.value
+            ),
+            model_sha256=(
+                LAMA_ONNX_FP32.sha256 if request.method is LamaInpaintMethod.LAMA else None
+            ),
+            crop_padding=inpaint_options.crop_padding,
+            requested_provider=inpaint_options.provider,
         )
 
     try:
@@ -324,19 +498,49 @@ def remove_image(request: ImageRemovalRequest) -> ImageRemovalResult:
         height=image.height,
     )
 
+    crop_plan: LamaCropPlan | None = None
+    runtime_diagnostics: RuntimeDiagnostics | None = None
+    backend_warnings: tuple[str, ...] = ()
     try:
-        candidate = inpaint_opencv(
-            image,
-            final_mask,
-            method=request.method,
-            radius=normalized_radius,
-        )
+        if isinstance(request.method, OpenCVInpaintMethod):
+            candidate = inpaint_opencv(
+                image,
+                final_mask,
+                method=request.method,
+                radius=cast(float, inpaint_options.radius),
+            )
+            output = composite_masked(image, candidate, final_mask)
+        elif final_mask.is_empty:
+            output = composite_masked(image, image, final_mask)
+        else:
+            owner = lama_session_owner_factory(
+                request.model_cache_root,
+                cast(RuntimeProvider, inpaint_options.provider),
+            )
+            try:
+                lama_result = inpaint_lama(
+                    image,
+                    final_mask,
+                    owner.get_session(),
+                    crop_padding=cast(int, inpaint_options.crop_padding),
+                )
+                runtime_diagnostics = owner.diagnostics
+            finally:
+                owner.close()
+            if runtime_diagnostics is None:
+                raise ImageRemovalProcessingError(
+                    "LaMa session diagnostics were unavailable after initialization.",
+                    code="session_creation_failed",
+                )
+            output = lama_result.image
+            crop_plan = lama_result.plan
+            backend_warnings = lama_result.warnings
     except DataContractError as error:
         raise ImageRemovalInputError(str(error), code="invalid_inpaint_options") from error
     except OpenCVInpaintError as error:
         raise ImageRemovalProcessingError(str(error), code="inpaint_failed") from error
-
-    output = composite_masked(image, candidate, final_mask)
+    except (ModelArtifactError, ModelRuntimeError) as error:
+        raise ImageRemovalProcessingError(str(error), code=error.code) from error
     replace = request.overwrite is OverwritePolicy.REPLACE
     try:
         if request.save_mask_path is not None:
@@ -350,7 +554,7 @@ def remove_image(request: ImageRemovalRequest) -> ImageRemovalResult:
         output_path=request.output_path,
         status=ImageRemovalStatus.SUCCEEDED,
         method=request.method,
-        radius=normalized_radius,
+        radius=inpaint_options.radius,
         dilation_radius=request.dilation_radius,
         mask_threshold=_mask_threshold(request),
         width=image.width,
@@ -358,7 +562,21 @@ def remove_image(request: ImageRemovalRequest) -> ImageRemovalResult:
         selected_pixels=final_mask.selected_pixels,
         duration_ms=(perf_counter() - started) * 1000,
         lossy_output=lossy_output,
-        warnings=_warnings_for(final_mask, lossy_output=lossy_output),
+        warnings=_warnings_for(
+            final_mask,
+            lossy_output=lossy_output,
+            backend_warnings=backend_warnings,
+        ),
+        backend_id=(
+            LAMA_ONNX_FP32.model_id
+            if request.method is LamaInpaintMethod.LAMA
+            else request.method.value
+        ),
+        model_sha256=(LAMA_ONNX_FP32.sha256 if request.method is LamaInpaintMethod.LAMA else None),
+        crop_padding=inpaint_options.crop_padding,
+        crop_plan=crop_plan,
+        runtime_diagnostics=runtime_diagnostics,
+        requested_provider=inpaint_options.provider,
     )
 
 
@@ -369,12 +587,13 @@ def build_failed_image_removal_result(
     duration_ms: float,
 ) -> ImageRemovalResult:
     """Build a stable failed result without exposing an exception traceback."""
+    is_lama = request.method is LamaInpaintMethod.LAMA
     return ImageRemovalResult(
         input_path=request.input_path,
         output_path=request.output_path,
         status=ImageRemovalStatus.FAILED,
         method=request.method,
-        radius=float(request.radius),
+        radius=None if request.radius is None else float(request.radius),
         dilation_radius=request.dilation_radius,
         mask_threshold=_mask_threshold(request),
         width=None,
@@ -384,4 +603,8 @@ def build_failed_image_removal_result(
         lossy_output=request.output_path.suffix.lower() in {".jpg", ".jpeg"},
         error_code=error.code,
         error_message=str(error),
+        backend_id=(LAMA_ONNX_FP32.model_id if is_lama else request.method.value),
+        model_sha256=LAMA_ONNX_FP32.sha256 if is_lama else None,
+        crop_padding=(64 if is_lama and request.crop_padding is None else request.crop_padding),
+        requested_provider=(request.provider or RuntimeProvider.CPU) if is_lama else None,
     )

@@ -20,8 +20,12 @@ from watermark_removal_lab.application import (
     ImageRemovalError,
     ImageRemovalOutputError,
     ImageRemovalProcessingError,
+    ModelManagementError,
+    ModelManagementResult,
+    ReviewedModelNotice,
     run_batch,
 )
+from watermark_removal_lab.models import LAMA_ONNX_FP32
 
 
 def _save_rgb(path: Path) -> None:
@@ -811,6 +815,244 @@ def test_cli_batch_help_documents_authorized_use_and_b1_limits(
     assert "does not support resume or retry" in normalized_help
     assert "--mask-dir" in normalized_help
     assert "--fail-fast" in normalized_help
+
+
+def _model_notice() -> ReviewedModelNotice:
+    return ReviewedModelNotice(
+        model_id=LAMA_ONNX_FP32.model_id,
+        source_url=LAMA_ONNX_FP32.source_url,
+        model_card_url=LAMA_ONNX_FP32.model_card_url,
+        declared_license=LAMA_ONNX_FP32.declared_license,
+        dataset_notice=LAMA_ONNX_FP32.dataset_notice,
+        dataset_terms_url=LAMA_ONNX_FP32.dataset_terms_url,
+        size_bytes=LAMA_ONNX_FP32.size_bytes,
+        sha256=LAMA_ONNX_FP32.sha256,
+    )
+
+
+def _model_result(path: Path) -> ModelManagementResult:
+    return ModelManagementResult(
+        notice=_model_notice(),
+        path=path,
+        status="verified",
+        size_bytes=LAMA_ONNX_FP32.size_bytes,
+        sha256=LAMA_ONNX_FP32.sha256,
+    )
+
+
+def test_cli_lama_empty_mask_parses_model_options_without_loading_runtime(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    input_path = tmp_path / "input.png"
+    mask_path = tmp_path / "mask.png"
+    output_path = tmp_path / "output.png"
+    _save_rgb(input_path)
+    Image.fromarray(np.zeros((5, 5), dtype=np.uint8), mode="L").save(mask_path)
+
+    exit_code = cli_module.main(
+        [
+            "image",
+            "remove",
+            str(input_path),
+            str(output_path),
+            "--mask",
+            str(mask_path),
+            "--method",
+            "lama",
+            "--provider",
+            "cuda",
+            "--crop-padding",
+            "8",
+            "--model-dir",
+            str(tmp_path / "models"),
+            "--json",
+        ]
+    )
+
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    assert exit_code == 0
+    assert captured.err == ""
+    assert payload["warnings"] == ["empty_mask"]
+    assert payload["method"] == "lama"
+    assert payload["options"]["radius"] is None
+    assert payload["options"]["crop_padding"] == 8
+    assert payload["backend"]["requested_provider"] == "cuda"
+    assert payload["backend"]["effective_providers"] == []
+
+
+@pytest.mark.parametrize(
+    "extra_options",
+    [
+        ["--method", "lama", "--radius", "2"],
+        ["--method", "telea", "--provider", "cpu"],
+        ["--method", "telea", "--crop-padding", "8"],
+        ["--method", "telea", "--model-dir", "models"],
+    ],
+)
+def test_cli_rejects_backend_specific_option_mismatches(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    extra_options: list[str],
+) -> None:
+    input_path = tmp_path / "input.png"
+    _save_rgb(input_path)
+
+    exit_code = cli_module.main(
+        [
+            "image",
+            "remove",
+            str(input_path),
+            str(tmp_path / "output.png"),
+            "--box",
+            "1,1,1,1",
+            *extra_options,
+            "--json",
+        ]
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    assert exit_code == 2
+    assert payload["error_code"] == "invalid_inpaint_options"
+
+
+def test_cli_model_status_emits_json_without_installing(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    expected = _model_result(tmp_path / "lama_fp32.onnx")
+    observed: list[tuple[str, Path | None]] = []
+
+    def fake_inspect(model_id: str, *, cache_root: Path | None) -> ModelManagementResult:
+        observed.append((model_id, cache_root))
+        return expected
+
+    monkeypatch.setattr(cli_module, "inspect_reviewed_model", fake_inspect)
+
+    exit_code = cli_module.main(
+        [
+            "model",
+            "status",
+            LAMA_ONNX_FP32.model_id,
+            "--cache-dir",
+            str(tmp_path),
+            "--json",
+        ]
+    )
+
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    assert exit_code == 0
+    assert captured.err == ""
+    assert payload["status"] == "verified"
+    assert payload["expected_sha256"] == LAMA_ONNX_FP32.sha256
+    assert observed == [(LAMA_ONNX_FP32.model_id, tmp_path)]
+
+
+def test_cli_model_install_displays_terms_before_human_success(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    notice = _model_notice()
+    expected = _model_result(tmp_path / "lama_fp32.onnx")
+    observed: list[tuple[str, Path | None, bool]] = []
+    monkeypatch.setattr(cli_module, "reviewed_model_notice", lambda model_id: notice)
+
+    def fake_install(
+        model_id: str,
+        *,
+        cache_root: Path | None,
+        terms_accepted: bool,
+    ) -> ModelManagementResult:
+        observed.append((model_id, cache_root, terms_accepted))
+        return expected
+
+    monkeypatch.setattr(cli_module, "install_reviewed_model", fake_install)
+
+    exit_code = cli_module.main(
+        [
+            "model",
+            "install",
+            LAMA_ONNX_FP32.model_id,
+            "--accept-model-terms",
+            "--cache-dir",
+            str(tmp_path),
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert "status: verified" in captured.out
+    assert f"source: {LAMA_ONNX_FP32.source_url}" in captured.err
+    assert f"declared license: {LAMA_ONNX_FP32.declared_license}" in captured.err
+    assert f"dataset notice: {LAMA_ONNX_FP32.dataset_notice}" in captured.err
+    assert f"dataset terms: {LAMA_ONNX_FP32.dataset_terms_url}" in captured.err
+    assert f"expected size: {LAMA_ONNX_FP32.size_bytes}" in captured.err
+    assert f"expected SHA-256: {LAMA_ONNX_FP32.sha256}" in captured.err
+    assert observed == [(LAMA_ONNX_FP32.model_id, tmp_path, True)]
+
+
+def test_cli_model_install_terms_failure_emits_json_and_notice(
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(cli_module, "reviewed_model_notice", lambda model_id: _model_notice())
+
+    def fail_install(
+        model_id: str,
+        *,
+        cache_root: Path | None,
+        terms_accepted: bool,
+    ) -> ModelManagementResult:
+        del model_id, cache_root, terms_accepted
+        raise ModelManagementError("terms required", code="model_terms_not_accepted")
+
+    monkeypatch.setattr(cli_module, "install_reviewed_model", fail_install)
+
+    exit_code = cli_module.main(["model", "install", LAMA_ONNX_FP32.model_id, "--json"])
+
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    assert exit_code == 2
+    assert payload == {
+        "status": "failed",
+        "error_code": "model_terms_not_accepted",
+        "error_message": "terms required",
+    }
+    assert f"model: {LAMA_ONNX_FP32.model_id}" in captured.err
+
+
+def test_cli_model_status_failure_uses_processing_exit_code(
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fail_inspect(model_id: str, *, cache_root: Path | None) -> ModelManagementResult:
+        del model_id, cache_root
+        raise ModelManagementError("cache unavailable", code="model_cache_failed")
+
+    monkeypatch.setattr(cli_module, "inspect_reviewed_model", fail_inspect)
+
+    exit_code = cli_module.main(["model", "status", LAMA_ONNX_FP32.model_id])
+
+    captured = capsys.readouterr()
+    assert exit_code == 3
+    assert captured.out == ""
+    assert captured.err.strip() == "failed: cache unavailable"
+
+
+def test_cli_model_help_documents_explicit_terms(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    with pytest.raises(SystemExit) as captured_exit:
+        cli_module.main(["model", "install", "--help"])
+
+    normalized_help = " ".join(capsys.readouterr().out.split())
+    assert captured_exit.value.code == 0
+    assert "--accept-model-terms" in normalized_help
+    assert LAMA_ONNX_FP32.model_id in normalized_help
 
 
 @pytest.mark.parametrize(

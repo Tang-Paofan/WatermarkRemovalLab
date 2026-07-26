@@ -16,6 +16,27 @@ uv run wrl --help
 
 All examples below use synthetic filenames. Create output directories before running a command.
 
+## Install the reviewed LaMa model
+
+LaMa is an optional, experimental single-image backend. Install exactly one ONNX Runtime extra as
+described in the [development guide](DEVELOPMENT.md), then explicitly install the pinned artifact:
+
+```powershell
+uv run wrl model install lama-onnx-fp32 `
+    --accept-model-terms `
+    --cache-dir C:\wrl-models
+
+uv run wrl model status lama-onnx-fp32 `
+    --cache-dir C:\wrl-models `
+    --json
+```
+
+The install command displays the pinned source, declared model-card license, Places dataset
+restriction notice, expected byte size, and SHA-256 before downloading. It publishes the file only
+after both integrity checks pass. Image processing never downloads a missing model. The artifact
+is not bundled, and the current project review approves only non-bundled, non-commercial research
+integration; see [MODEL_LICENSES.md](../MODEL_LICENSES.md).
+
 ## Remove an overlay from one image
 
 Use a half-open box expressed as `X,Y,WIDTH,HEIGHT`:
@@ -36,8 +57,23 @@ uv run wrl image remove input.png output.png `
     --save-mask final-mask.png
 ```
 
-Mask intensities strictly above the threshold are selected. `--method` accepts `telea` or `ns`.
-Use `--json` for one machine-readable single-image result.
+Mask intensities strictly above the threshold are selected. `--method` accepts `telea`, `ns`, or
+`lama`. `--radius` is OpenCV-only.
+
+Run the reviewed LaMa artifact with an explicit local cache and provider:
+
+```powershell
+uv run wrl image remove input.png output.png `
+    --mask mask.png `
+    --method lama `
+    --provider cpu `
+    --crop-padding 64 `
+    --model-dir C:\wrl-models
+```
+
+`--provider`, `--crop-padding`, and `--model-dir` are LaMa-only. Passing backend-incompatible
+options fails instead of being ignored. Use `--json` for one machine-readable result containing
+the backend identity, model SHA-256, provider diagnostics, warnings, and crop transform.
 
 ## Process an image directory
 
@@ -60,6 +96,9 @@ uv run wrl batch image `
 Without `--recursive`, only the immediate input directory is scanned. Supported images are processed
 in deterministic relative-path order. `--output-format png` changes every output extension to
 `.png`; `preserve` retains the input extension.
+
+B1 directory and manifest batches still accept only `telea` and `ns`. LaMa batch execution,
+provider-aware scheduling, and resume belong to B2 and are not enabled by the single-image command.
 
 To use masks, replace `--box` with `--mask-dir`:
 
@@ -138,6 +177,9 @@ items are recorded as `cancelled` with reason `user_cancelled`.
 - Localization is manual: provide a box or mask.
 - Telea and Navier-Stokes are model-free baselines and may produce visible artifacts on textured,
   structured, or semantically complex backgrounds.
+- LaMa uses a fixed 512 × 512 local crop, so large masks are downscaled and may lose detail.
+- LaMa requires the pinned artifact and one compatible optional ONNX Runtime package; provider
+  requests never silently fall back.
 - Batch execution uses exactly one worker.
 - Batch resume and automatic retry are not supported.
 - PNG preserves supported alpha data. JPEG output is lossy and cannot preserve alpha.
