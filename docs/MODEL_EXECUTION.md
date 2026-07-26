@@ -69,7 +69,9 @@ The reference layout is:
 
 ```text
 /root/autodl-tmp/
-├── wrl-models/       Verified model cache
+├── wrl-models/       Verified model cache root
+│   └── lama-onnx-fp32/
+│       └── lama_fp32.onnx
 ├── wrl-work/         Authorized or synthetic inputs and temporary outputs
 └── wrl-evidence/     Logs and machine-readable acceptance evidence
 
@@ -125,6 +127,31 @@ uv build --no-sources
 These commands must remain model-free and offline after dependency synchronization.
 
 ## 6. Install the optional runtime and model
+
+### Current implementation boundary
+
+The repository currently contains the fixed `lama-onnx-fp32` descriptor and the headless,
+atomic model store. Their offline tests verify terms rejection, cache resolution, exact size and
+SHA-256 checks, reuse of a verified artifact, replacement of an invalid file only after a valid
+download, and cleanup after transport or publication failure.
+
+The `wrl model` commands, ONNX Runtime extras, model session, and image pipeline integration are
+later M2 slices. Until those slices exist in the checked-out revision, do not start real-model
+acceptance on AutoDL and do not treat the command examples below as available. Another
+contributor can review the implemented slice with:
+
+```bash
+uv run ruff format --check .
+uv run ruff check .
+uv run mypy
+uv run pytest
+uv build --no-sources
+```
+
+The model cache root is selected in this order: an adapter-provided `--cache-dir` or `Path`, the
+`WRL_MODEL_CACHE` environment variable, then the platform user cache. Artifacts are namespaced as
+`<cache-root>/<model-id>/<filename>`. Inspection is read-only and never creates a directory or
+starts a download.
 
 M2 defines separate optional groups:
 

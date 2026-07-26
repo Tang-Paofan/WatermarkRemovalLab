@@ -163,6 +163,23 @@ its contents match the reviewed size and SHA-256. Support for arbitrary descript
 On AutoDL, the reference cache is outside the Git checkout under
 `/root/autodl-tmp/wrl-models`; other hosts use an equivalent user-controlled cache.
 
+The first local implementation slice provides exactly one descriptor,
+`lama-onnx-fp32`, and a headless store with these boundaries:
+
+- cache-root precedence is an adapter-provided path, `WRL_MODEL_CACHE`, then the platform user
+  cache;
+- the final path is `<cache-root>/lama-onnx-fp32/lama_fp32.onnx`;
+- inspection is read-only and never downloads;
+- installation requires the acceptance value to be the Boolean `true`;
+- a verified final file is reused without transport;
+- an invalid final file remains untouched unless a newly downloaded temporary file passes both
+  checks and is atomically published;
+- the downloader is injectable so default tests remain offline.
+
+This slice does not yet expose the CLI commands above, install ONNX Runtime, create a model
+session, or connect LaMa to the image pipeline. Real-model AutoDL acceptance begins only after
+those later slices form a minimum inference loop.
+
 ## 7. Runtime dependencies and providers
 
 ONNX Runtime remains optional and is imported lazily.

@@ -54,7 +54,9 @@ Linux 主机需要：
 
 ```text
 /root/autodl-tmp/
-├── wrl-models/       已验证模型缓存
+├── wrl-models/       已验证模型缓存根目录
+│   └── lama-onnx-fp32/
+│       └── lama_fp32.onnx
 ├── wrl-work/         已授权或合成输入及临时输出
 └── wrl-evidence/     日志与机器可读验收证据
 
@@ -105,6 +107,22 @@ uv build --no-sources
 完成依赖同步后，这些命令必须保持无模型、离线运行。
 
 ## 6. 安装可选运行时与模型
+
+### 当前实现边界
+
+仓库当前已包含固定的 `lama-onnx-fp32` 描述符与无界面原子模型存储层。离线测试覆盖条款拒绝、缓存路径解析、准确大小与 SHA-256 校验、复用已验证产物、仅在新下载通过校验后替换无效文件，以及传输或发布失败后的清理。
+
+`wrl model` 命令、ONNX Runtime extra、模型会话和图片流水线接入属于后续 M2 切片。在当前检出版本尚未提供这些能力前，不应开始 AutoDL 真实模型验收，也不能把下方命令示例视为已经可用。其他贡献者可以使用以下命令复核当前切片：
+
+```bash
+uv run ruff format --check .
+uv run ruff check .
+uv run mypy
+uv run pytest
+uv build --no-sources
+```
+
+模型缓存根目录按以下优先级选择：适配器传入的 `--cache-dir` 或 `Path`、`WRL_MODEL_CACHE` 环境变量、平台用户缓存。产物路径为 `<缓存根目录>/<模型 ID>/<文件名>`。检查操作只读，不会创建目录或启动下载。
 
 M2 定义两个可选依赖组：
 
