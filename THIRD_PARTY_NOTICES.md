@@ -56,3 +56,16 @@ Add reviewed notices below. Do not remove an existing notice while the correspon
   components documented in the exact package
   [third-party license file](https://github.com/opencv/opencv-python/blob/92/LICENSE-3RD-PARTY.txt).
 - Distribution: external runtime dependency; not copied into this repository or project wheel.
+
+### ONNX Runtime
+
+- Purpose: optional CPU or CUDA execution of the reviewed LaMa ONNX artifact.
+- Locked packages: `onnxruntime` 1.26.0 for CPU and `onnxruntime-gpu` 1.26.0 for CUDA.
+- Source: <https://github.com/microsoft/onnxruntime/tree/v1.26.0>.
+- License: MIT License
+  ([license text](https://github.com/microsoft/onnxruntime/blob/v1.26.0/LICENSE)).
+- Bundled component notices: see the exact upstream
+  [ThirdPartyNotices.txt](https://github.com/microsoft/onnxruntime/blob/v1.26.0/ThirdPartyNotices.txt).
+- GPU compatibility: the official 1.26 GPU package targets CUDA 12.8 and cuDNN 9.
+- Distribution: mutually exclusive external optional dependencies; neither package is installed
+  by default or copied into this repository or project wheel.

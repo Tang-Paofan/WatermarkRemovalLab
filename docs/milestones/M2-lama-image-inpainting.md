@@ -204,6 +204,20 @@ The session owner:
 - does not use an import-time singleton or unbounded global mutable cache;
 - converts provider initialization and memory failures into stable domain errors.
 
+The second local implementation slice locks ONNX Runtime 1.26.0 in two conflicting extras.
+`lama-onnx-cpu` selects `onnxruntime`; `lama-onnx-cuda` selects `onnxruntime-gpu` on Linux or
+Windows. Version 1.26 is the official CUDA 12.8 / cuDNN 9 GPU line. Moving to the CUDA 13 default
+introduced in 1.27 requires a new host-compatibility review.
+
+This slice also provides a lazy `LamaOnnxSessionOwner`. It checks the artifact before importing
+`onnxruntime`, requires the requested provider to be registered and first in the created session,
+validates the reviewed input/output metadata, retains at most one session, and drops its reference
+when closed. CPU and CUDA use the same graph contract. No runtime is installed by default and all
+default tests use injected fake modules and sessions.
+
+The owner does not yet execute input arrays. Crop transforms, tensor values, `session.run`, output
+validation, application-pipeline integration, and real-model tests remain later slices.
+
 ## 8. Local crop contract
 
 Given the original image and final refined mask:

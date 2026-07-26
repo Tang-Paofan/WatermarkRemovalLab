@@ -40,6 +40,8 @@ M2 will first integrate one pinned LaMa ONNX FP32 artifact through ONNX Runtime.
 - Processing never downloads a missing model.
 - The loader accepts only the reviewed artifact hash during M2.
 - CPU and CUDA ONNX Runtime distributions are separate optional dependency groups.
+- Both initial groups lock ONNX Runtime 1.26.0. Its GPU distribution targets CUDA 12.8 and
+  cuDNN 9; the CUDA 13 default introduced in 1.27 requires a separate compatibility review.
 - CPU is the default provider; requesting CUDA without a registered CUDA provider fails.
 - A deterministic padded square crop adapts original media to the fixed 512-by-512 model input.
 - Only pixels selected by the original-resolution final mask are composited back.

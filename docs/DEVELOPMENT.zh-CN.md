@@ -24,6 +24,18 @@ uv sync
 `uv sync` 根据 `pyproject.toml` 和 `uv.lock` 创建或更新 `.venv`。默认环境会以可编辑方式
 安装项目包和开发工具；该命令不会下载模型权重或数据集。
 
+M2 提供两个互斥的 ONNX Runtime extra，但默认环境不会安装其中任何一个：
+
+```powershell
+# CPU 包
+uv sync --extra lama-onnx-cpu
+
+# CUDA 12.8 / cuDNN 9 包；需要兼容的 Linux 或 Windows 主机
+uv sync --extra lama-onnx-cuda
+```
+
+两个 extra 都固定 ONNX Runtime 1.26.0。CPU 与 CUDA 验收证据使用不同环境；项目配置会拒绝在同一环境同时请求两个 extra。安装 extra 不会安装或下载 LaMa 模型。
+
 ## 运行必要检查
 
 ```powershell

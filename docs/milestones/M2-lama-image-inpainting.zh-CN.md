@@ -176,6 +176,12 @@ ONNX Runtime 保持可选，并采用惰性导入。
 - 不使用导入时单例或无界全局可变缓存；
 - 把 provider 初始化与内存失败转换为稳定领域错误。
 
+第二个本地实现切片在两个冲突 extra 中固定 ONNX Runtime 1.26.0。`lama-onnx-cpu` 选择 `onnxruntime`；`lama-onnx-cuda` 在 Linux 或 Windows 上选择 `onnxruntime-gpu`。1.26 属于官方 CUDA 12.8 / cuDNN 9 GPU 版本线。升级到 1.27 引入的 CUDA 13 默认构建前，必须重新审查主机兼容性。
+
+此切片还提供惰性的 `LamaOnnxSessionOwner`。它先校验模型产物，再导入 `onnxruntime`；要求请求的 provider 已注册且位于创建后 Session 的第一位；校验已审查的输入输出元数据；最多保留一个 Session，并在关闭时释放 owner 持有的引用。CPU 与 CUDA 使用同一图契约。默认环境不安装任何运行时，全部默认测试使用注入的假模块与假 Session。
+
+owner 当前尚不执行输入数组。裁剪变换、张量值、`session.run`、输出校验、应用流水线接入和真实模型测试属于后续切片。
+
 ## 8. 局部裁剪契约
 
 给定原始图片和最终细化掩膜：

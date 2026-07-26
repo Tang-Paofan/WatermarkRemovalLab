@@ -32,6 +32,7 @@ M2 首先通过 ONNX Runtime 集成一个固定版本的 LaMa ONNX FP32 产物�
 - 处理流程不会下载缺失模型。
 - M2 加载器只接受已审查的产物哈希。
 - CPU 与 CUDA ONNX Runtime 发行包属于不同的可选依赖组。
+- 两个初始依赖组都固定 ONNX Runtime 1.26.0。其 GPU 发行包面向 CUDA 12.8 与 cuDNN 9；升级到 1.27 引入的 CUDA 13 默认构建前，需要单独审查兼容性。
 - CPU 是默认 provider；请求 CUDA 而 CUDA provider 未注册时直接失败。
 - 使用确定性的带 padding 正方形裁剪适配固定 512×512 模型输入。
 - 只把原始分辨率最终掩膜选中的像素回贴到结果。

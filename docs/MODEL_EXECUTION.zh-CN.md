@@ -110,9 +110,9 @@ uv build --no-sources
 
 ### 当前实现边界
 
-仓库当前已包含固定的 `lama-onnx-fp32` 描述符与无界面原子模型存储层。离线测试覆盖条款拒绝、缓存路径解析、准确大小与 SHA-256 校验、复用已验证产物、仅在新下载通过校验后替换无效文件，以及传输或发布失败后的清理。
+仓库当前已包含固定的 `lama-onnx-fp32` 描述符、原子模型存储、互斥的 CPU/CUDA 运行时 extra 和惰性 Session owner。离线测试证明：可选运行时只会在模型完整性校验通过后导入；CPU 与 CUDA 共用同一张量契约；CUDA 不可用时绝不静默回退 CPU；图元数据会被校验；每个 owner 最多保留一个 Session。
 
-`wrl model` 命令、ONNX Runtime extra、模型会话和图片流水线接入属于后续 M2 切片。在当前检出版本尚未提供这些能力前，不应开始 AutoDL 真实模型验收，也不能把下方命令示例视为已经可用。其他贡献者可以使用以下命令复核当前切片：
+`wrl model` 命令、真实推理调用、裁剪变换、图片流水线接入和真实模型 pytest marker 仍属于后续 M2 切片。只有这些切片形成最小推理闭环后，才开始 AutoDL 真实模型验收；当前不能把下方命令示例视为已经可用。其他贡献者可以使用以下命令复核已实现切片：
 
 ```bash
 uv run ruff format --check .
@@ -134,7 +134,9 @@ uv sync --extra lama-onnx-cpu
 uv sync --extra lama-onnx-cuda
 ```
 
-只使用当前检出版本中确实存在、并由 `uv` 与项目元数据记录的 extra。在早期实现阶段，契约描述的命令可能尚未提供；该版本的 `wrl --help` 与 `pyproject.toml` 才是权威来源。
+两个 extra 都固定 ONNX Runtime 1.26.0。GPU 包是官方 CUDA 12.8 / cuDNN 9 构建；ONNX Runtime 1.27 及以上版本已经把 PyPI 默认 GPU 构建切换到 CUDA 13，因此升级前必须重新审查兼容性并记录 AutoDL 环境。CPU 与 GPU 发行包暴露相同的 `onnxruntime` 导入包，所以项目把两个 extra 声明为冲突，并要求分别使用不同环境生成验收证据。
+
+只使用当前检出版本中确实存在、并由 `uv` 与项目元数据记录的 extra。分阶段实现 M2 时，契约描述的 CLI 命令仍可能尚未提供；该版本的 `wrl --help` 才是权威来源。
 
 把模型显式安装到数据盘缓存：
 

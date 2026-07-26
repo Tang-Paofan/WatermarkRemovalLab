@@ -130,15 +130,16 @@ These commands must remain model-free and offline after dependency synchronizati
 
 ### Current implementation boundary
 
-The repository currently contains the fixed `lama-onnx-fp32` descriptor and the headless,
-atomic model store. Their offline tests verify terms rejection, cache resolution, exact size and
-SHA-256 checks, reuse of a verified artifact, replacement of an invalid file only after a valid
-download, and cleanup after transport or publication failure.
+The repository currently contains the fixed `lama-onnx-fp32` descriptor, atomic model store,
+mutually exclusive CPU/CUDA runtime extras, and a lazy session owner. Offline tests prove that
+model integrity is checked before importing the optional runtime, CPU and CUDA provider policies
+share one tensor contract, unavailable CUDA never silently falls back to CPU, graph metadata is
+validated, and one owner retains at most one session.
 
-The `wrl model` commands, ONNX Runtime extras, model session, and image pipeline integration are
-later M2 slices. Until those slices exist in the checked-out revision, do not start real-model
-acceptance on AutoDL and do not treat the command examples below as available. Another
-contributor can review the implemented slice with:
+The `wrl model` commands, real inference call, crop transform, image pipeline integration, and
+real-model pytest markers remain later M2 slices. Until those slices form the minimum inference
+loop, do not start real-model acceptance on AutoDL and do not treat the command examples below as
+available. Another contributor can review the implemented slices with:
 
 ```bash
 uv run ruff format --check .
@@ -163,9 +164,15 @@ uv sync --extra lama-onnx-cpu
 uv sync --extra lama-onnx-cuda
 ```
 
-Use only an extra that exists in the checked-out revision and is documented by `uv` and the
-project metadata. During early implementation, a command described by this contract may not yet
-be available; `wrl --help` and `pyproject.toml` are authoritative for that revision.
+Both extras lock ONNX Runtime 1.26.0. The GPU package is the official CUDA 12.8 / cuDNN 9 build;
+ONNX Runtime 1.27 and later changed the default PyPI GPU build to CUDA 13, so upgrading requires a
+new compatibility review and AutoDL environment record. The project declares the extras as
+conflicting because the CPU and GPU distributions expose the same `onnxruntime` import package.
+Use a separate environment for each acceptance run.
+
+Use only an extra that exists in the checked-out revision and is documented by `uv` and project
+metadata. A CLI command described by this contract may still be unavailable during staged M2
+implementation; `wrl --help` is authoritative for that revision.
 
 Install the model explicitly into the data-disk cache:
 

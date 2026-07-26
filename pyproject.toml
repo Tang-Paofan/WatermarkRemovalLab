@@ -30,6 +30,14 @@ dependencies = [
     "pillow>=12,<13",
 ]
 
+[project.optional-dependencies]
+lama-onnx-cpu = [
+    "onnxruntime==1.26.0",
+]
+lama-onnx-cuda = [
+    "onnxruntime-gpu==1.26.0; sys_platform == 'linux' or sys_platform == 'win32'",
+]
+
 [project.scripts]
 wrl = "watermark_removal_lab.cli:main"
 
@@ -39,6 +47,14 @@ dev = [
     "pytest",
     "pytest-cov",
     "ruff",
+]
+
+[tool.uv]
+conflicts = [
+    [
+        { extra = "lama-onnx-cpu" },
+        { extra = "lama-onnx-cuda" },
+    ],
 ]
 
 [tool.mypy]

@@ -27,6 +27,21 @@ uv sync
 contains the package in editable form and the development tools. No model weights or datasets are
 downloaded by this command.
 
+M2 exposes mutually exclusive ONNX Runtime extras without adding either package to the default
+environment:
+
+```powershell
+# CPU package
+uv sync --extra lama-onnx-cpu
+
+# CUDA 12.8 / cuDNN 9 package; use a compatible Linux or Windows host
+uv sync --extra lama-onnx-cuda
+```
+
+Both extras lock ONNX Runtime 1.26.0. Use separate environments for CPU and CUDA acceptance
+evidence; requesting both extras in one environment is rejected by the project configuration.
+Installing an extra does not install or download the LaMa model.
+
 ## Run the required checks
 
 ```powershell
